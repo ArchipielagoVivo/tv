@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="v1_copia" data-name="v1 copia" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 283.46 283.46">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+      }
+
+      .cls-2 {
+        fill: #9bd6e8;
+      }
+
+      .cls-3 {
+        fill: #7c6a59;
+        font-size: 92px;
+      }
+
+      .cls-3, .cls-4 {
+        font-family: Poppins-Regular, Poppins;
+      }
+
+      .cls-5 {
+        fill: #feef64;
+      }
+
+      .cls-4 {
+        font-size: 29px;
+        letter-spacing: .48em;
+      }
+
+      .cls-4, .cls-6 {
+        fill: #646caf;
+      }
+
+      .cls-6 {
+        font-family: Poppins-Bold, Poppins;
+        font-size: 53px;
+        font-weight: 700;
+        letter-spacing: -.05em;
+      }
+    </style>
+  </defs>
+  <rect class="cls-5" x="188.79" width="94.39" height="283.46"/>
+  <rect class="cls-2" x="94.39" width="94.39" height="283.46"/>
+  <rect class="cls-1" width="94.39" height="283.46"/>
+  <text class="cls-3" transform="translate(154.39 80.86)"><tspan x="0" y="0">TV</tspan></text>
+  <text class="cls-4" transform="translate(145.73 196.15)"><tspan x="0" y="0">VIVO</tspan></text>
+  <text class="cls-6" transform="translate(58.31 162.23)"><tspan x="0" y="0">Archplg</tspan></text>
+</svg>
