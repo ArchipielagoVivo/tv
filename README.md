@@ -1,486 +1,157 @@
 # Archipiélago Vivo TV
 
-**Archipiélago Vivo TV** es un reproductor web de emisión continua basado en una playlist pública de YouTube.
+Frontend de `tv.archipielagovivo.org`.
 
-La aplicación mantiene una programación audiovisual dinámica, incorpora automáticamente los nuevos vídeos añadidos a la playlist y permite reproducirlos en orden o de forma aleatoria, con bucle continuo.
+## Estado actual
 
-**Web:** `https://tv.archipielagovivo.org`
-
----
-
-## Objetivo
-
-Archipiélago Vivo TV forma parte del proyecto **Archipiélago Vivo** y está pensado como una ventana audiovisual continua para contenidos relacionados con Canarias, sus territorios, comunidades, iniciativas, cultura, memoria, medio ambiente y movimientos sociales.
-
-La programación se gestiona desde una playlist pública de YouTube.
-
-Esto permite actualizar los contenidos sin modificar ni volver a desplegar la página web.
+La portada `index.html` ya no reproduce una única playlist aleatoria. Consume el export TV schema v2 de Archipiélago Vivo:
 
 ```text
-Playlist de YouTube
-        │
-        │ añadir / quitar vídeos
-        ▼
-Archipiélago Vivo TV
-        │
-        ├── actualiza la lista
-        ├── incorpora nuevos vídeos
-        ├── mantiene el vídeo actual
-        └── continúa la reproducción
+https://script.google.com/macros/s/AKfycbxcmJ4_kBZKJe9Npa7lQ4kcQzRdEN_j6Xc11zq2T6ak628dgi4VYcGZv3VNVyGr8KLc/exec?export=tv
 ```
 
----
+La emisión es **multicanal virtual**: cada visitante reproduce la posición que corresponde por hora canaria (`Atlantic/Canary`) a su canal, usando la misma parrilla y el mismo algoritmo determinista.
 
-# Características
+## Canales
 
-## Reproducción continua
+El frontend no tiene los canales codificados de forma rígida. Lee del JSON:
 
-Los vídeos se reproducen consecutivamente.
+- `channel_id`
+- `channel_number`
+- `slug`
+- `name`
+- `description`
+- `status`
 
-Cuando termina un vídeo, el reproductor recibe el evento real `ENDED` de la YouTube IFrame API y pasa automáticamente al siguiente.
-
-No se utilizan temporizadores para estimar cuándo termina un vídeo.
-
----
-
-## Bucle infinito
-
-El modo:
+El canal inicial se toma de `tv_config.default_channel_id`. Puede seleccionarse por URL:
 
 ```text
-∞ Bucle: ON
+?channel=general
+?channel=fuerteventura
+?channel=territorio
+?channel=memoria
 ```
 
-mantiene la programación funcionando continuamente.
+El último canal elegido se conserva en `localStorage`.
 
-Al terminar el último vídeo:
+## Parrilla
+
+`tv-engine.js` resuelve:
+
+- `program_rotation`
+- `entity_rotation`
+- `entity_new`
+- `entity_deadline`
+
+Los bloques `entity_*` son globales: cuando contienen material reproducible, todos los canales emiten exactamente la misma cápsula.
+
+Los máximos `max_duration_minutes` son máximos, no relleno. Cuando termina el material elegido para el bloque global, el canal vuelve a su programación temática.
+
+Los perfiles se agrupan por `entity_id`; si excepcionalmente una entidad tuviera varios media, se reproducen consecutivamente como una unidad editorial. La producción recomendada sigue siendo unir previamente los miniclips con FFmpeg y publicar una sola cápsula final.
+
+## Rotación de entidades
+
+La periodicidad completa se lee de `policy.entity_rotation.current_full_cycle_hours`, calculada por Apps Script en función de la duración total de los perfiles reproducibles.
+
+La selección es determinista para que distintos navegadores sintonicen la misma emisión. No requiere escrituras de historial desde el navegador.
+
+`entity_deadline` funciona como bloque de seguridad ante un hipotético overflow de capacidad.
+
+## Novedades
+
+`entity_new` considera nuevas las fichas durante las horas indicadas por `policy.entity_new.new_for_hours` (actualmente 72 h).
+
+Las ventanas premium se distribuyen según el volumen de novedades. Para grandes volúmenes se aplica el máximo editorial diario de 80 minutos definido en el frontend.
+
+## Continuidad entre programas
+
+La presentación se lee de:
 
 ```text
-último vídeo
-      ↓
-ENDED
-      ↓
-refrescar playlist
-      ↓
-comprobar cambios
-      ↓
-crear nueva vuelta
-      ↓
-primer vídeo
-      ↓
-∞
+presentation.program_change_teasers
 ```
 
-Antes de comenzar una nueva vuelta se vuelve a consultar la playlist original.
+30 segundos antes de un **cambio real de `program_id`**, aparece una columna en el margen derecho. Cada tarjeta contiene:
 
----
+- thumbnail del primer vídeo que entrará;
+- número y nombre del canal;
+- nombre del siguiente programa;
+- cuenta atrás.
 
-## Shuffle
+Las tarjetas se apilan por arriba y desaparecen al llegar a cero.
 
-El modo:
+No se muestran durante bloques globales `entity_rotation`, `entity_new` o `entity_deadline`. Tampoco se anuncia un cambio de programa si en el instante de ese cambio entra primero un bloque global de entidades.
+
+Las tarjetas son clicables y permiten cambiar de canal.
+
+## Entidades y QR
+
+Cuando se emite un `media` de tipo `entity` y existe `map_url` en el registro legacy `entities`, se muestra la ficha correspondiente con QR.
+
+El QR se genera visualmente mediante `api.qrserver.com`; el destino siempre es el `map_url` recibido del JSON.
+
+## Header
+
+El header incorpora enlaces a:
+
+- Qué es
+- Ver mapa
+- Agenda
+- Participa
+- Contacto
+
+y el selector de canal.
+
+## Reproductor
+
+Se usa YouTube IFrame API.
+
+El motor corrige la deriva de reloj periódicamente. Si el navegador bloquea el autoplay con sonido, la emisión continúa silenciada y se muestra el botón **Activar sonido**.
+
+## Archivos
 
 ```text
-🔀 Shuffle: ON
+index.html          interfaz
+styles.css          diseño responsive
+tv-engine.js        motor determinista de parrilla
+app.js              datos, reproductor, UI y continuidad
+logo*.svg           identidad
+tv v1.html          versiones históricas
+tv v2.html
+tv v3.html
+tv v4.html
+CNAME               tv.archipielagovivo.org
 ```
 
-genera un orden aleatorio para la reproducción.
+## Requisito del Apps Script
 
-No selecciona simplemente un vídeo al azar cada vez.
+Antes de publicar este frontend, el Web App debe estar desplegado con `schema_version: 2` y, como mínimo:
 
-Se genera una permutación completa de los contenidos para evitar repeticiones dentro de una misma vuelta.
+```text
+channels
+programs
+media
+schedule
+policy
+presentation
+entities
+tv_config
+```
+
+Si el endpoint sigue en schema v1, la portada muestra un error explícito en lugar de inventar una parrilla.
+
+## Diagnóstico
+
+Añadir:
+
+```text
+?debug=1
+```
+
+a la URL para mostrar el registro interno del frontend.
 
 Ejemplo:
 
 ```text
-Playlist
-
-1
-2
-3
-4
-5
-6
+https://tv.archipielagovivo.org/?channel=fuerteventura&debug=1
 ```
-
-puede reproducirse como:
-
-```text
-4
-1
-6
-3
-2
-5
-```
-
-Cuando termina la vuelta se genera un nuevo orden.
-
----
-
-## Playlist dinámica
-
-La programación se sincroniza automáticamente con la playlist de origen.
-
-La aplicación vuelve a consultar la lista aproximadamente cada:
-
-```text
-5 minutos
-```
-
-También realiza una comprobación adicional antes de comenzar cada nueva vuelta.
-
----
-
-## Incorporación de nuevos vídeos
-
-Si se añade un nuevo contenido mientras Archipiélago Vivo TV está funcionando, no es necesario recargar la página.
-
-Por ejemplo:
-
-```text
-1 ✓
-2 ✓
-3 ← reproduciendo
-4
-5
-```
-
-Si posteriormente aparecen:
-
-```text
-6 NUEVO
-7 NUEVO
-```
-
-la cola pasa a contener:
-
-```text
-1 ✓
-2 ✓
-3 ← reproduciendo
-4
-5
-6
-7
-```
-
-El vídeo que está reproduciéndose no se interrumpe.
-
-Con `Shuffle` activo, los nuevos vídeos se incorporan a la parte pendiente de la vuelta.
-
----
-
-# Arquitectura
-
-La aplicación separa la obtención de la programación de la reproducción audiovisual.
-
-```text
-┌──────────────────────────────┐
-│   Playlist pública YouTube   │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│        Invidious API         │
-│                              │
-│ IDs                          │
-│ títulos                      │
-│ autores                      │
-│ duración                     │
-│ orden                        │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│          JavaScript          │
-│                              │
-│ cola                         │
-│ actualización                │
-│ shuffle                      │
-│ bucle                        │
-│ nuevos contenidos            │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│    YouTube IFrame API        │
-│                              │
-│ reproducción                 │
-│ pausa                        │
-│ seek                         │
-│ buffering                    │
-│ evento ENDED                 │
-└──────────────────────────────┘
-```
-
----
-
-# Tecnologías
-
-El proyecto utiliza únicamente tecnologías web del lado del cliente:
-
-* HTML
-* CSS
-* JavaScript
-* YouTube IFrame Player API
-* API pública de Invidious
-
-No necesita:
-
-* PHP;
-* Node.js;
-* Python;
-* base de datos;
-* servidor de aplicaciones;
-* procesos ejecutándose en un ordenador local.
-
-Puede alojarse como una web completamente estática.
-
----
-
-# Estructura
-
-La estructura mínima del proyecto es:
-
-```text
-tv.archipielagovivo.org/
-│
-├── index.html
-├── README.md
-└── LICENSE
-```
-
-Si se utiliza GitHub Pages con dominio personalizado:
-
-```text
-tv.archipielagovivo.org/
-│
-├── index.html
-├── README.md
-├── LICENSE
-└── CNAME
-```
-
-El contenido de `CNAME` sería:
-
-```text
-tv.archipielagovivo.org
-```
-
----
-
-# Dominio
-
-La aplicación está diseñada para publicarse en:
-
-```text
-https://tv.archipielagovivo.org
-```
-
-Es recomendable utilizar HTTPS.
-
-La YouTube IFrame API recibe automáticamente el origen de la instalación:
-
-```javascript
-origin: location.origin
-```
-
-En producción:
-
-```text
-https://tv.archipielagovivo.org
-```
-
----
-
-# Playlist
-
-La playlist actual está configurada mediante:
-
-```text
-PLHnCLhOECJFA
-```
-
-o mediante su URL completa:
-
-```text
-https://www.youtube.com/playlist?list=PLHnCLhOECJFA
-```
-
-La interfaz también permite introducir otra playlist pública.
-
----
-
-# Gestión de contenidos
-
-La programación de Archipiélago Vivo TV se administra desde la playlist de YouTube.
-
-Por tanto, para añadir contenido no es necesario modificar el código.
-
-El flujo editorial es:
-
-```text
-Encontrar / publicar vídeo
-          ↓
-añadirlo a la playlist
-          ↓
-Archipiélago Vivo TV detecta el cambio
-          ↓
-el vídeo entra en programación
-```
-
-De la misma manera, retirar un vídeo de la playlist permite retirarlo de futuras reproducciones.
-
----
-
-# Controles
-
-La interfaz incluye:
-
-```text
-⏮ Anterior
-
-Siguiente ⏭
-
-🔀 Shuffle: ON / OFF
-
-∞ Bucle: ON / OFF
-
-↻ Refrescar lista
-```
-
-También están disponibles los controles propios del reproductor oficial de YouTube.
-
----
-
-# Autoplay
-
-Los navegadores modernos pueden impedir la reproducción automática con sonido hasta que exista una interacción de la persona usuaria.
-
-Por este motivo, al abrir Archipiélago Vivo TV aparece inicialmente:
-
-```text
-▶ Iniciar reproducción
-```
-
-Después de esa interacción, la programación puede continuar automáticamente.
-
----
-
-# Vídeos no disponibles
-
-Algunos vídeos pueden:
-
-* haber sido eliminados;
-* convertirse en privados;
-* estar restringidos geográficamente;
-* impedir la reproducción embebida.
-
-La aplicación intenta detectar estos errores y continuar con el siguiente contenido cuando es posible.
-
----
-
-# Publicidad
-
-La reproducción se realiza mediante el reproductor oficial de YouTube.
-
-Por tanto, YouTube puede mostrar publicidad.
-
-Archipiélago Vivo TV no modifica ni intenta bloquear los anuncios del reproductor oficial.
-
----
-
-# Privacidad
-
-La consulta de la composición de la playlist se realiza mediante Invidious.
-
-La reproducción audiovisual se realiza mediante infraestructura de YouTube.
-
-Por tanto, durante la reproducción pueden producirse conexiones con servicios pertenecientes a Google/YouTube y aplicarse sus correspondientes políticas técnicas y de privacidad.
-
----
-
-# Dependencia de Invidious
-
-Invidious se utiliza únicamente para obtener los metadatos necesarios para mantener sincronizada la programación.
-
-No se utiliza para servir los vídeos.
-
-La disponibilidad de las instancias públicas de Invidious puede variar.
-
-Por este motivo, la aplicación incorpora varias instancias y utiliza mecanismos de fallback cuando una de ellas no responde.
-
----
-
-# Uso previsto
-
-Archipiélago Vivo TV puede utilizarse como:
-
-* televisión web continua;
-* canal audiovisual curatorial;
-* pantalla para exposiciones;
-* instalación audiovisual;
-* pantalla informativa;
-* reproducción en centros culturales;
-* espacios comunitarios;
-* encuentros y eventos;
-* escaparates;
-* televisores o pantallas dedicadas.
-
-El objetivo principal es mantener una programación audiovisual que pueda evolucionar desde la playlist de origen sin necesidad de administrar manualmente la aplicación web.
-
----
-
-# Proyecto
-
-**Archipiélago Vivo**
-
-Un proyecto orientado a visibilizar, conectar y documentar iniciativas, territorios, comunidades y procesos vinculados con Canarias.
-
-```text
-Archipiélago Vivo
-        │
-        └── Archipiélago Vivo TV
-              │
-              └── tv.archipielagovivo.org
-```
-
----
-
-# Estado
-
-Versión actual del reproductor:
-
-```text
-v6
-```
-
-Arquitectura actual:
-
-```text
-Invidious API
-      ↓
-programación y sincronización
-
-JavaScript
-      ↓
-cola + shuffle + loop
-
-YouTube IFrame API
-      ↓
-reproducción
-```
-
----
-
-# Licencia
-
-La licencia del código debe definirse en el archivo:
-
-```text
-LICENSE
-```
-
-Si se desea permitir reutilización, modificación y redistribución del código con pocas restricciones, una posible opción es la licencia MIT.
-
-Los contenidos audiovisuales reproducidos por Archipiélago Vivo TV mantienen sus respectivas autorías, licencias y derechos y no quedan cubiertos por la licencia del código de este proyecto.
