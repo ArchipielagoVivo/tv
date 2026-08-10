@@ -590,39 +590,86 @@
     }
 
     nextProgramChanges(timestampMs = Date.now(), leadSeconds = 30) {
+      /*
+       * Continuidad de TV.
+       *
+       * La versión anterior dependía exclusivamente del "end" de la franja
+       * actualmente activa. Eso podía perder avisos cuando las franjas no
+       * encajaban exactamente, había huecos o se cruzaba medianoche.
+       *
+       * Aquí buscamos los próximos START reales del schedule de cada canal y
+       * comprobamos la emisión efectiva justo después de ese instante.
+       */
       if (this.resolveGlobal(timestampMs)) return [];
 
       const nowParts = this.canaryParts(timestampMs);
+      const nowSeconds = nowParts.secondsOfDay;
+      const lead = Math.max(1, Number(leadSeconds || 30));
       const results = [];
 
       this.channels.forEach(channel => {
-        const currentRow = this.getThematicRow(channel.channel_id, nowParts);
-        if (!currentRow) return;
+        const currentBroadcast = this.resolveThematic(channel.channel_id, timestampMs);
+        const currentProgramId =
+          currentBroadcast && currentBroadcast.program
+            ? currentBroadcast.program.program_id
+            : "";
 
-        const end = timeToSeconds(currentRow.end);
-        if (end === null) return;
+        const boundaries = uniqueBy(
+          this.schedule
+            .filter(row =>
+              !row.is_global &&
+              row.channel_id === channel.channel_id &&
+              row.active !== false &&
+              row.valid !== false
+            )
+            .map(row => {
+              const start = timeToSeconds(row.start);
+              if (start === null) return null;
 
-        let delta = end - nowParts.secondsOfDay;
-        if (delta <= 0) return;
-        if (delta > leadSeconds) return;
+              let delta = start - nowSeconds;
+              if (delta <= 0) delta += 86400;
 
-        const futureMs = timestampMs + delta * 1000 + 250;
-        // Si al llegar el cambio entra una ventana global de entities, no hay teaser.
-        if (this.resolveGlobal(futureMs)) return;
+              return {
+                row,
+                delta
+              };
+            })
+            .filter(item => item && item.delta > 0 && item.delta <= lead)
+            .sort((a, b) =>
+              a.delta - b.delta ||
+              Number(b.row.priority || 0) - Number(a.row.priority || 0)
+            ),
+          item => String(item.delta)
+        );
 
-        const futureParts = this.canaryParts(futureMs);
-        const nextRow = this.getThematicRow(channel.channel_id, futureParts);
-        if (!nextRow || nextRow.program_id === currentRow.program_id) return;
+        for (const boundary of boundaries) {
+          const futureMs = timestampMs + boundary.delta * 1000 + 250;
 
-        const nextBroadcast = this.resolveThematic(channel.channel_id, futureMs);
-        results.push({
-          channel,
-          current_program: this.getProgram(currentRow.program_id),
-          next_program: this.getProgram(nextRow.program_id),
-          next_media: nextBroadcast.media || null,
-          seconds_until_change: Math.max(0, delta),
-          change_at_ms: futureMs - 250
-        });
+          // Durante/entrando en bloques globales entity_* no mostramos continuidad.
+          const futureGlobal = this.resolveGlobal(futureMs);
+          if (futureGlobal && futureGlobal.is_global_entity_block) continue;
+
+          const nextBroadcast = this.resolveThematic(channel.channel_id, futureMs);
+          if (!nextBroadcast || !nextBroadcast.program || !nextBroadcast.media) continue;
+
+          const nextProgramId = nextBroadcast.program.program_id || "";
+          if (!nextProgramId || nextProgramId === currentProgramId) continue;
+
+          results.push({
+            channel,
+            current_program:
+              currentBroadcast && currentBroadcast.program
+                ? currentBroadcast.program
+                : null,
+            next_program: nextBroadcast.program,
+            next_media: nextBroadcast.media,
+            seconds_until_change: Math.max(0, boundary.delta),
+            change_at_ms: timestampMs + boundary.delta * 1000
+          });
+
+          // Solo queremos el cambio más próximo de cada canal.
+          break;
+        }
       });
 
       return results.sort((a, b) =>

@@ -86,27 +86,50 @@
 
   function renderChannelMenu() {
     if (!engine) return;
+
     const menu = $("channelMenu");
+    const now = Date.now();
     menu.replaceChildren();
 
     [...engine.channels]
       .sort((a, b) => Number(a.channel_number || 999) - Number(b.channel_number || 999))
       .forEach(channel => {
+        const broadcast = engine.resolve(channel.channel_id, now);
+        const media = broadcast && broadcast.media;
+        const program = broadcast && broadcast.program;
+        const thumb =
+          media && media.thumbnail
+            ? media.thumbnail
+            : "logo.svg";
+
         const button = document.createElement("button");
         button.type = "button";
         button.className = "channel-option";
         button.dataset.channel = channel.channel_id;
+        button.setAttribute(
+          "aria-current",
+          selectedChannel && selectedChannel.channel_id === channel.channel_id
+            ? "true"
+            : "false"
+        );
+
         button.innerHTML = `
-          <span class="channel-option-number">${escapeText(channel.channel_number || "")}</span>
+          <span class="channel-option-thumb-wrap">
+            <img class="channel-option-thumb" src="${escapeText(thumb)}" alt="" loading="eager">
+            <span class="channel-option-number">${escapeText(channel.channel_number || "")}</span>
+          </span>
           <span class="channel-option-copy">
             <strong>${escapeText(channel.name)}</strong>
-            <span>${escapeText(channel.description || "")}</span>
+            <span class="channel-option-program">${escapeText(program && program.name ? program.name : "Programación")}</span>
+            <span class="channel-option-title">${escapeText(media && media.title ? media.title : "Programación en preparación")}</span>
           </span>
         `;
+
         button.addEventListener("click", () => {
           selectChannel(channel.channel_id);
           closeChannelMenu();
         });
+
         menu.appendChild(button);
       });
   }
@@ -313,16 +336,29 @@
     return broadcast;
   }
 
+  function updateSoundButton() {
+    const button = $("soundButton");
+    button.classList.add("visible");
+    button.textContent = soundEnabled ? "Desactivar sonido" : "Activar sonido";
+    button.setAttribute("aria-pressed", soundEnabled ? "true" : "false");
+  }
+
   function ensureAutoplay() {
     if (!playerReady || !player) return;
     clearTimeout(fallbackMuteTimer);
+
+    if (!soundEnabled) {
+      try { player.mute(); } catch (_) {}
+    }
+
+    updateSoundButton();
+
     fallbackMuteTimer = setTimeout(() => {
       try {
         const state = player.getPlayerState();
-        if (state !== window.YT.PlayerState.PLAYING && !soundEnabled) {
-          player.mute();
+        if (state !== window.YT.PlayerState.PLAYING) {
+          if (!soundEnabled) player.mute();
           player.playVideo();
-          $("soundButton").classList.add("visible");
         }
       } catch (_) {}
     }, 1400);
@@ -335,6 +371,7 @@
     currentBroadcast = broadcast;
     updateChannelHeader(broadcast);
     updateEntityCard(broadcast);
+    renderChannelMenu();
     renderContinuity();
 
     if (!broadcast || broadcast.kind !== "media" || !broadcast.media || !broadcast.media.youtube_id) {
@@ -379,14 +416,20 @@
     } catch (_) {}
   }
 
-  function activateSound() {
-    soundEnabled = true;
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+
     try {
-      player.unMute();
-      player.setVolume(100);
-      player.playVideo();
+      if (soundEnabled) {
+        player.unMute();
+        player.setVolume(100);
+        player.playVideo();
+      } else {
+        player.mute();
+      }
     } catch (_) {}
-    $("soundButton").classList.remove("visible");
+
+    updateSoundButton();
   }
 
   function toggleFullscreen() {
@@ -430,6 +473,9 @@
       events: {
         onReady() {
           playerReady = true;
+          soundEnabled = false;
+          try { player.mute(); } catch (_) {}
+          updateSoundButton();
           syncPlayback(true);
         },
         onStateChange(event) {
@@ -450,6 +496,7 @@
   function bindUi() {
     $("channelButton").addEventListener("click", event => {
       event.stopPropagation();
+      renderChannelMenu();
       toggleChannelMenu();
     });
 
@@ -457,7 +504,7 @@
       if (!$("channelSwitcher").contains(event.target)) closeChannelMenu();
     });
 
-    $("soundButton").addEventListener("click", activateSound);
+    $("soundButton").addEventListener("click", toggleSound);
     $("fullscreenButton").addEventListener("click", toggleFullscreen);
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
 
