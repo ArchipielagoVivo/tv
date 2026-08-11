@@ -92,15 +92,23 @@ El QR se genera visualmente mediante `api.qrserver.com`; el destino siempre es e
 
 ## Header
 
-El header incorpora enlaces a:
+El header replica la navegación actual de Archipiélago Vivo:
 
 - Qué es
-- Ver mapa
+- Mapa
 - Agenda
-- Participa
+- Inscripción
+- TV
+- Comunidad
 - Contacto
 
-y el selector de canal.
+`Comunidad` abre WhatsApp en una pestaña nueva. El selector de canal se mantiene como control propio de TV.
+
+## Analítica de navegación
+
+`analytics.js` comparte la sesión efímera de Archipiélago Vivo entre el dominio principal y sus subdominios, sin cookies ni almacenamiento persistente para analítica. TV se registra como `/@tv/` para distinguirla de la portada principal y de Inscripción.
+
+Los enlaces internos de Archipiélago Vivo heredan `av_session`, `av_entry` y la atribución UTM/AV. Los enlaces externos, incluida la Comunidad de WhatsApp, no reciben esos parámetros.
 
 ## Reproductor
 
