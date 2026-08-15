@@ -396,22 +396,120 @@
     }
 
     resolveSequence(sequence, elapsedSeconds, seedText = "") {
-      const valid = sequence.filter(item => item && item.youtube_id && asDuration(item) > 0);
+      // Un mismo vídeo puede llegar al feed con registros distintos.
+      // Para continuidad editorial deduplicamos por youtube_id, no sólo media_id.
+      const valid = uniqueBy(
+        sequence.filter(item =>
+          item &&
+          item.youtube_id &&
+          asDuration(item) > 0
+        ),
+        item => String(item.youtube_id)
+      );
+
       if (!valid.length) return null;
 
-      const total = valid.reduce((sum, item) => sum + asDuration(item), 0);
+      const total = valid.reduce(
+        (sum, item) => sum + asDuration(item),
+        0
+      );
+
       if (total <= 0) return null;
 
       let elapsed = Math.max(0, elapsedSeconds);
       const cycle = Math.floor(elapsed / total);
       elapsed %= total;
 
-      const ordered = cycle === 0
-        ? valid
-        : seededShuffle(valid, `${seedText}|loop:${cycle}`);
+      const orderForCycle = cycleNumber => {
+        if (cycleNumber <= 0) {
+          return [...valid];
+        }
+
+        const ordered = seededShuffle(
+          valid,
+          `${seedText}|loop:${cycleNumber}`
+        );
+
+        // Evita la repetición justo en el límite entre dos vueltas:
+        //
+        // vuelta N:     A B C
+        // vuelta N + 1: C A B   <- antes podía ocurrir C -> C
+        //
+        // Si hay alternativas, intercambiamos determinísticamente el
+        // primer elemento por el primer vídeo distinto.
+        if (ordered.length > 1) {
+          const previous = cycleNumber === 1
+            ? [...valid]
+            : seededShuffle(
+                valid,
+                `${seedText}|loop:${cycleNumber - 1}`
+              );
+
+          // La vuelta anterior también pudo ser corregida. Reproducimos
+          // recursivamente sólo la corrección de borde para conocer su final.
+          const previousOrdered = (() => {
+            if (cycleNumber - 1 <= 0) {
+              return previous;
+            }
+
+            const result = [...previous];
+            const prevPrev = cycleNumber - 1 === 1
+              ? [...valid]
+              : seededShuffle(
+                  valid,
+                  `${seedText}|loop:${cycleNumber - 2}`
+                );
+
+            if (
+              result.length > 1 &&
+              prevPrev.length &&
+              result[0].youtube_id ===
+                prevPrev[prevPrev.length - 1].youtube_id
+            ) {
+              const swapIndex = result.findIndex(
+                (item, index) =>
+                  index > 0 &&
+                  item.youtube_id !==
+                    prevPrev[prevPrev.length - 1].youtube_id
+              );
+
+              if (swapIndex > 0) {
+                [result[0], result[swapIndex]] =
+                  [result[swapIndex], result[0]];
+              }
+            }
+
+            return result;
+          })();
+
+          const previousLast =
+            previousOrdered[previousOrdered.length - 1];
+
+          if (
+            previousLast &&
+            ordered[0].youtube_id === previousLast.youtube_id
+          ) {
+            const swapIndex = ordered.findIndex(
+              (item, index) =>
+                index > 0 &&
+                item.youtube_id !== previousLast.youtube_id
+            );
+
+            if (swapIndex > 0) {
+              [ordered[0], ordered[swapIndex]] =
+                [ordered[swapIndex], ordered[0]];
+            }
+          }
+        }
+
+        return ordered;
+      };
+
+      const ordered = orderForCycle(cycle);
 
       for (const item of ordered) {
         const duration = asDuration(item);
+
         if (elapsed < duration) {
           return {
             media: item,
@@ -419,6 +517,7 @@
             cycle
           };
         }
+
         elapsed -= duration;
       }
 
