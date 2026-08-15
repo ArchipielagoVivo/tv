@@ -11,6 +11,8 @@
   const DEGRADED_REPORT_COOLDOWN_MS = 60 * 1000;
   const START_SUCCESS_TOLERANCE_MS = 2500;
   const PROGRAM_START_TIMEOUT_MS = 20 * 1000;
+  const DEBUG_SCHEDULE_REPORT_MS = 300 * 1000;
+  const DEBUG_SCHEDULE_LOOKAHEAD_SECONDS = 24 * 60 * 60;
 
   // Archipiélago Vivo TV funciona como señal lineal:
   // una pausa accidental o provocada por el usuario no debe dejar
@@ -38,6 +40,7 @@
   let healthTimer = null;
   let uiTimer = null;
   let refreshTimer = null;
+  let debugScheduleTimer = null;
   let intermissionTimer = null;
   let transitionTimeoutTimer = null;
   let pausePlayTimer = null;
@@ -345,23 +348,53 @@
 
     const mediaLink = $("infoMediaLink");
     if (mediaLink) {
-      const youtubeId = media && media.youtube_id
-        ? String(media.youtube_id).trim()
-        : "";
+      let playerVideoId = "";
+
+      try {
+        const videoData =
+          playerReady &&
+          player &&
+          typeof player.getVideoData === "function"
+            ? player.getVideoData()
+            : null;
+
+        playerVideoId =
+          videoData && videoData.video_id
+            ? String(videoData.video_id).trim()
+            : "";
+      } catch (_) {}
+
+      const youtubeId = firstText(
+        media && media.youtube_id,
+        currentVideoId,
+        playerVideoId
+      );
 
       if (youtubeId) {
-        mediaLink.href =
-          `https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}&autoplay=0`;
+        const youtubeUrl = new URL(
+          "https://www.youtube.com/watch"
+        );
+
+        youtubeUrl.searchParams.set(
+          "v",
+          youtubeId
+        );
+
+        youtubeUrl.searchParams.set(
+          "autoplay",
+          "0"
+        );
+
+        mediaLink.href = youtubeUrl.toString();
         mediaLink.target = "_blank";
         mediaLink.rel = "noopener noreferrer";
         mediaLink.setAttribute(
           "aria-label",
-          `${firstText(media.title, media.name, "Vídeo")} · abrir en YouTube`
+          `${firstText(media && media.title, media && media.name, "Vídeo")} · abrir vídeo original en YouTube`
         );
       } else {
+        // Nunca dejamos href="#": si no hay un ID real, no hay enlace.
         mediaLink.removeAttribute("href");
-        mediaLink.removeAttribute("target");
-        mediaLink.removeAttribute("rel");
         mediaLink.removeAttribute("aria-label");
       }
     }
@@ -545,6 +578,10 @@
     currentVideoId = "";
     currentPlaybackContextKey = "";
     syncPlayback(true);
+
+    if (debugEnabled) {
+      setTimeout(debugScheduleReport, 250);
+    }
   }
 
   function toggleChannelMenu() {
@@ -753,10 +790,104 @@
     }, 1400);
   }
 
+  function formatClock(timestampMs) {
+    try {
+      return new Intl.DateTimeFormat("es-ES", {
+        timeZone: "Atlantic/Canary",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      }).format(new Date(timestampMs));
+    } catch (_) {
+      return new Date(timestampMs).toLocaleTimeString("es-ES");
+    }
+  }
+
+  function formatDuration(seconds) {
+    const total = Math.max(0, Math.round(Number(seconds) || 0));
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+
+    return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  }
+
   function selectedNextProgramChange(timestampMs = Date.now(), lookaheadSeconds = INTERMISSION_LOOKAHEAD_SECONDS) {
     if (!engine || !selectedChannel) return null;
     return engine.nextProgramChanges(timestampMs, lookaheadSeconds)
       .find(change => change.channel && change.channel.channel_id === selectedChannel.channel_id) || null;
+  }
+
+  function debugScheduleReport() {
+    if (!debugEnabled || !engine || !selectedChannel) return;
+
+    const now = Date.now();
+    const broadcast = currentBroadcast || expectedBroadcast();
+    const media = broadcast && broadcast.media;
+    const program = broadcast && broadcast.program;
+
+    const change = selectedNextProgramChange(
+      now,
+      DEBUG_SCHEDULE_LOOKAHEAD_SECONDS
+    );
+
+    const payload = {
+      channel: selectedChannel.channel_id,
+      channel_name: selectedChannel.name || "",
+      program: program && (program.name || program.program_id) || "",
+      media: media && (media.title || media.media_id) || "",
+      media_offset_seconds: Math.round(
+        Number(
+          broadcast &&
+          broadcast.media_offset_seconds || 0
+        )
+      )
+    };
+
+    if (change) {
+      const remainingSeconds = Math.max(
+        0,
+        Math.round(
+          (change.change_at_ms - now) / 1000
+        )
+      );
+
+      payload.next_program =
+        change.next_program &&
+        (change.next_program.name ||
+         change.next_program.program_id) ||
+        "";
+
+      payload.next_program_at =
+        formatClock(change.change_at_ms);
+
+      payload.seconds_until_next_program =
+        remainingSeconds;
+
+      payload.time_until_next_program =
+        formatDuration(remainingSeconds);
+
+      // Con el motor actual conocemos con exactitud el cambio de programa,
+      // pero la cortinilla empieza cuando termina el último vídeo real.
+      // Hasta que exista schedule.json compilado, no fingimos una hora exacta.
+      payload.next_intermission =
+        "pending_media_end";
+
+      payload.intermission_boundary_at =
+        formatClock(change.change_at_ms);
+    } else {
+      payload.next_program =
+        "none_in_24h";
+      payload.next_intermission =
+        "none_in_24h";
+    }
+
+    log("schedule_heartbeat", payload);
   }
 
   function beginIntermissionFromEnded() {
@@ -1101,9 +1232,19 @@
     clearInterval(healthTimer);
     clearInterval(uiTimer);
     clearInterval(refreshTimer);
+    clearInterval(debugScheduleTimer);
+
     healthTimer = setInterval(playbackHealthTick, PLAYBACK_HEALTH_MS);
     uiTimer = setInterval(renderContinuity, UI_TICK_MS);
     refreshTimer = setInterval(() => loadTvData({ quiet: true }), DATA_REFRESH_MS);
+
+    if (debugEnabled) {
+      debugScheduleReport();
+      debugScheduleTimer = setInterval(
+        debugScheduleReport,
+        DEBUG_SCHEDULE_REPORT_MS
+      );
+    }
   }
 
   window.onYouTubeIframeAPIReady = function onYouTubeIframeAPIReady() {
@@ -1148,6 +1289,7 @@
 
           if (state === window.YT.PlayerState.PLAYING) {
             trackPlaybackStart();
+            updateInfoPanel(currentBroadcast);
           }
 
           if (state === window.YT.PlayerState.ENDED) {
