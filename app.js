@@ -167,26 +167,47 @@
   async function shareCurrentBroadcast() {
     const payload = currentSharePayload();
 
+    // Compartimos un único cuerpo de texto:
+    // mensaje editorial + URL de Archipiélago Vivo TV.
+    //
+    // No adjuntamos miniaturas ni enviamos una URL separada a Web Share.
+    // La preview social debe salir de los metadatos Open Graph del subdominio.
+    const shareText = [
+      payload.text,
+      payload.url
+    ].filter(Boolean).join("\n");
+
     trackTv("tv_share", {
       ...broadcastDetails(),
       action_from: "player",
-      action_to: "share"
+      action_to: "native_share"
     });
 
     if (navigator.share) {
       try {
-        await navigator.share(payload);
+        await navigator.share({
+          title: payload.title || "Archipiélago Vivo TV",
+          text: shareText
+        });
         return;
       } catch (error) {
         if (error && error.name === "AbortError") return;
-        log("share", String(error));
+        log("share", {
+          mode: "text_tv_url",
+          error: String(error)
+        });
       }
     }
 
-    const fallbackText = `${payload.text}\n${payload.url}`;
-
     try {
-      await navigator.clipboard.writeText(fallbackText);
+      await navigator.clipboard.writeText(shareText);
+
+      trackTv("tv_share", {
+        ...broadcastDetails(),
+        action_from: "player",
+        action_to: "clipboard"
+      });
+
       const button = $("shareButton");
       if (button) {
         const original = button.innerHTML;
@@ -196,7 +217,10 @@
         }, 1800);
       }
     } catch (_) {
-      window.prompt("Copia este enlace para compartir la emisión:", fallbackText);
+      window.prompt(
+        "Copia este contenido para compartir la emisión:",
+        shareText
+      );
     }
   }
 
