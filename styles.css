@@ -84,7 +84,8 @@ a { color: inherit; }
 }
 
 .main-nav a:hover,
-.main-nav a:focus-visible {
+.main-nav a:focus-visible,
+.main-nav a[aria-current="page"] {
   color: var(--accent);
 }
 
@@ -592,9 +593,6 @@ a { color: inherit; }
 }
 
 @media (max-width: 520px) {
-  .main-nav a:nth-child(3),
-  .main-nav a:nth-child(5) { display: none; }
-
   .continuity-column { width: min(250px, 62vw); }
 
   .entity-link img { display: none; }
