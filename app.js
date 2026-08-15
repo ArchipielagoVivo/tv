@@ -1,14 +1,16 @@
 (() => {
   "use strict";
 
-  const TV_DATA_URL =
-    "https://data.archipielagovivo.org/tv/feed.json";
-
+  const TV_DATA_URL = "https://data.archipielagovivo.org/tv/feed.json";
   const DATA_REFRESH_MS = 5 * 60 * 1000;
-  const PLAYBACK_SYNC_MS = 5000;
+  const PLAYBACK_HEALTH_MS = 1000;
   const UI_TICK_MS = 250;
-  const MAX_DRIFT_SECONDS = 3;
   const REQUEST_TIMEOUT_MS = 15000;
+  const INTERMISSION_LOOKAHEAD_SECONDS = 180;
+  const BUFFERING_DEGRADED_MS = 4000;
+  const DEGRADED_REPORT_COOLDOWN_MS = 60 * 1000;
+  const START_SUCCESS_TOLERANCE_MS = 2500;
+  const PROGRAM_START_TIMEOUT_MS = 20 * 1000;
 
   const $ = id => document.getElementById(id);
   const debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
@@ -16,20 +18,33 @@
   let tvData = null;
   let engine = null;
   let selectedChannel = null;
-
   let player = null;
   let playerReady = false;
   let currentVideoId = "";
   let currentBroadcast = null;
+  let currentPlaybackContextKey = "";
   let failedVideoIds = new Set();
   let soundEnabled = false;
   let fallbackMuteTimer = null;
   let currentEntityCardId = "";
   const continuityCards = new Map();
 
-  let syncTimer = null;
+  let healthTimer = null;
   let uiTimer = null;
   let refreshTimer = null;
+  let intermissionTimer = null;
+  let transitionTimeoutTimer = null;
+  let intermission = null;
+  let pendingTransition = null;
+
+  let bufferingStartedAt = 0;
+  let mediaBufferingMs = 0;
+  let lastDegradedReportAt = 0;
+  let lastPlayerState = null;
+
+  let tvStartTracked = false;
+  let lastTrackedMediaKey = "";
+  let lastTrackedProgramKey = "";
 
   function log(...parts) {
     if (!debugEnabled) return;
@@ -63,9 +78,7 @@
 
   function resolveRequestedChannel() {
     const params = new URLSearchParams(location.search);
-    const fromUrl = params.get("channel");
-    const fromStorage = localStorage.getItem("avtv_channel");
-    return fromUrl || fromStorage || null;
+    return params.get("channel") || localStorage.getItem("avtv_channel") || null;
   }
 
   function updateUrlChannel(channel) {
@@ -84,9 +97,84 @@
       .replaceAll("'", "&#39;");
   }
 
+  function fullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function fullscreenSupported() {
+    const root = document.documentElement;
+    return Boolean(
+      document.fullscreenEnabled ||
+      document.webkitFullscreenEnabled ||
+      typeof root.requestFullscreen === "function" ||
+      typeof root.webkitRequestFullscreen === "function"
+    );
+  }
+
+  function detectDeviceClass() {
+    const ua = String(navigator.userAgent || "").toLowerCase();
+    if (/android tv|googletv|smart-tv|smarttv|hbbtv|tizen|web0s|webos|netcast|aft[a-z0-9]*/i.test(ua)) return "tv";
+    if (/android|iphone|ipad|ipod|mobile/i.test(ua)) return "mobile";
+    return "desktop";
+  }
+
+  function technicalContext() {
+    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection || null;
+    const platform = navigator.userAgentData && navigator.userAgentData.platform
+      ? navigator.userAgentData.platform
+      : navigator.platform || "";
+
+    const result = {
+      user_agent: String(navigator.userAgent || "").slice(0, 1000),
+      platform: String(platform || "").slice(0, 200),
+      device_class: detectDeviceClass(),
+      fullscreen_supported: fullscreenSupported() ? 1 : 0
+    };
+
+    if (connection) {
+      if (connection.effectiveType) result.connection_effective_type = String(connection.effectiveType);
+      if (Number.isFinite(Number(connection.downlink))) result.connection_downlink = Number(connection.downlink);
+      if (Number.isFinite(Number(connection.rtt))) result.connection_rtt = Number(connection.rtt);
+    }
+    return result;
+  }
+
+  function trackTv(eventName, details = {}, includeTechnical = false) {
+    if (!window.AVAnalytics || typeof window.AVAnalytics.track !== "function") return false;
+    return window.AVAnalytics.track(
+      eventName,
+      includeTechnical ? { ...technicalContext(), ...details } : details
+    );
+  }
+
+  function broadcastDetails(broadcast = currentBroadcast) {
+    const channel = broadcast && broadcast.channel ? broadcast.channel : selectedChannel;
+    const program = broadcast && broadcast.program;
+    const media = broadcast && broadcast.media;
+    const details = {};
+    if (channel && channel.channel_id) details.channel_id = channel.channel_id;
+    if (channel && channel.channel_number !== undefined && channel.channel_number !== null && channel.channel_number !== "") {
+      details.channel_number = channel.channel_number;
+    }
+    if (program && program.program_id) details.program_id = program.program_id;
+    if (media && media.media_id) details.media_id = media.media_id;
+    if (media && media.type) details.media_type = media.type;
+    if (media && media.entity_id) details.entity_id = media.entity_id;
+    if (media && media.youtube_id) details.youtube_id = media.youtube_id;
+    return details;
+  }
+
+  function playbackContextKey(broadcast) {
+    if (!broadcast) return "";
+    return [
+      broadcast.channel && broadcast.channel.channel_id || "",
+      broadcast.is_global_entity_block ? "global_entity" : "thematic",
+      broadcast.program && broadcast.program.program_id || ""
+    ].join("|");
+  }
+
   function renderChannelMenu() {
     if (!engine) return;
-
     const menu = $("channelMenu");
     const now = Date.now();
     menu.replaceChildren();
@@ -97,22 +185,12 @@
         const broadcast = engine.resolve(channel.channel_id, now);
         const media = broadcast && broadcast.media;
         const program = broadcast && broadcast.program;
-        const thumb =
-          media && media.thumbnail
-            ? media.thumbnail
-            : "logo.svg";
-
+        const thumb = media && media.thumbnail ? media.thumbnail : "logo.svg";
         const button = document.createElement("button");
         button.type = "button";
         button.className = "channel-option";
         button.dataset.channel = channel.channel_id;
-        button.setAttribute(
-          "aria-current",
-          selectedChannel && selectedChannel.channel_id === channel.channel_id
-            ? "true"
-            : "false"
-        );
-
+        button.setAttribute("aria-current", selectedChannel && selectedChannel.channel_id === channel.channel_id ? "true" : "false");
         button.innerHTML = `
           <span class="channel-option-thumb-wrap">
             <img class="channel-option-thumb" src="${escapeText(thumb)}" alt="" loading="eager">
@@ -122,14 +200,11 @@
             <strong>${escapeText(channel.name)}</strong>
             <span class="channel-option-program">${escapeText(program && program.name ? program.name : "Programación")}</span>
             <span class="channel-option-title">${escapeText(media && media.title ? media.title : "Programación en preparación")}</span>
-          </span>
-        `;
-
+          </span>`;
         button.addEventListener("click", () => {
           selectChannel(channel.channel_id);
           closeChannelMenu();
         });
-
         menu.appendChild(button);
       });
   }
@@ -137,22 +212,40 @@
   function updateChannelHeader(broadcast) {
     const channel = broadcast && broadcast.channel;
     const program = broadcast && broadcast.program;
-
     if (channel) {
       $("channelNumber").textContent = channel.channel_number ? `CANAL ${channel.channel_number}` : "CANAL";
       $("channelName").textContent = channel.name || channel.channel_id;
     }
-
     $("currentProgram").textContent = program && program.name ? program.name : "Programación";
+  }
+
+  function cancelIntermission() {
+    clearTimeout(intermissionTimer);
+    clearTimeout(transitionTimeoutTimer);
+    intermissionTimer = null;
+    transitionTimeoutTimer = null;
+    intermission = null;
+    pendingTransition = null;
   }
 
   function selectChannel(channelValue) {
     if (!engine) return;
     const channel = engine.resolveChannel(channelValue);
     if (!channel) return;
+    const previous = selectedChannel && selectedChannel.channel_id;
+    cancelIntermission();
     selectedChannel = channel;
+    if (previous && previous !== channel.channel_id) {
+      trackTv("tv_channel_change", {
+        action_from: previous,
+        action_to: channel.channel_id,
+        channel_id: channel.channel_id,
+        channel_number: channel.channel_number
+      });
+    }
     updateUrlChannel(channel);
     currentVideoId = "";
+    currentPlaybackContextKey = "";
     syncPlayback(true);
   }
 
@@ -169,10 +262,41 @@
     $("channelButton").setAttribute("aria-expanded", "false");
   }
 
+  function resetStandbyPresentation() {
+    const standby = $("standby");
+    const image = standby.querySelector("img");
+    const copy = standby.querySelector(".standby-copy");
+    standby.classList.remove("intermission");
+    if (image) {
+      image.style.width = "";
+      image.style.maxHeight = "";
+      image.style.marginBottom = "";
+    }
+    if (copy) copy.textContent = "Programación en preparación";
+  }
+
   function showStandby(broadcast) {
+    resetStandbyPresentation();
     const programName = broadcast && broadcast.program && broadcast.program.name;
     $("standbyProgram").textContent = programName || "Programación";
     $("standby").classList.add("visible");
+  }
+
+  function showIntermissionScreen() {
+    const standby = $("standby");
+    const image = standby.querySelector("img");
+    const copy = standby.querySelector(".standby-copy");
+    standby.classList.add("intermission");
+    if (image) {
+      image.style.width = "min(300px, 48vw)";
+      image.style.maxHeight = "300px";
+      image.style.marginBottom = "1.4rem";
+    }
+    if (copy) copy.textContent = "ARCHIPIÉLAGO VIVO TV";
+    $("standbyProgram").textContent = "Continuamos en breves instantes";
+    standby.classList.add("visible");
+    $("entityCard").classList.remove("visible");
+    clearContinuity();
   }
 
   function hideStandby() {
@@ -191,21 +315,18 @@
       card.classList.remove("visible");
       return;
     }
-
     const entity = tvData && tvData.entities && tvData.entities[media.entity_id];
     if (!entity || !entity.map_url) {
       currentEntityCardId = "";
       card.classList.remove("visible");
       return;
     }
-
     if (currentEntityCardId !== media.entity_id) {
       currentEntityCardId = media.entity_id;
       $("entityQr").src = qrImageUrl(entity.map_url);
       $("entityName").textContent = entity.name || media.title || "Ver ficha";
       $("entityLink").href = entity.map_url;
     }
-
     card.classList.add("visible");
   }
 
@@ -216,46 +337,32 @@
   }
 
   function renderContinuity() {
-    if (!engine || !selectedChannel || !tvData) return;
-
-    const config =
-      tvData.presentation &&
-      tvData.presentation.program_change_teasers
-        ? tvData.presentation.program_change_teasers
-        : {};
-
+    if (!engine || !selectedChannel || !tvData || intermission) return;
+    const config = tvData.presentation && tvData.presentation.program_change_teasers
+      ? tvData.presentation.program_change_teasers
+      : {};
     const column = $("continuityColumn");
-
     if (config.enabled === false || (currentBroadcast && currentBroadcast.is_global_entity_block)) {
       clearContinuity();
       return;
     }
-
     const leadSeconds = Number(config.lead_seconds || 30);
     const changes = engine.nextProgramChanges(Date.now(), leadSeconds);
-
     if (!changes.length) {
       clearContinuity();
       return;
     }
-
     const activeKeys = new Set();
-
     changes.forEach(change => {
       const key = `${change.channel.channel_id}|${Math.round(change.change_at_ms)}`;
       activeKeys.add(key);
-
       let card = continuityCards.get(key);
       if (!card) {
         card = document.createElement("button");
         card.type = "button";
         card.className = "continuity-card";
         card.dataset.channel = change.channel.channel_id;
-
-        const thumb = change.next_media && change.next_media.thumbnail
-          ? change.next_media.thumbnail
-          : "logo_archipielagotv.svg";
-
+        const thumb = change.next_media && change.next_media.thumbnail ? change.next_media.thumbnail : "logo.svg";
         card.innerHTML = `
           <div class="continuity-thumb-wrap">
             <img class="continuity-thumb" src="${escapeText(thumb)}" alt="" loading="eager">
@@ -264,54 +371,42 @@
           <div class="continuity-copy">
             <span class="continuity-channel">${change.channel.channel_number ? `${escapeText(change.channel.channel_number)} · ` : ""}${escapeText(change.channel.name)}</span>
             <strong>${escapeText(change.next_program.name)}</strong>
-          </div>
-        `;
-
+          </div>`;
         card.addEventListener("click", () => selectChannel(change.channel.channel_id));
         continuityCards.set(key, card);
       }
-
       const remaining = Math.max(0, Math.ceil((change.change_at_ms - Date.now()) / 1000));
       const countdown = card.querySelector(".continuity-countdown");
       if (countdown) countdown.textContent = `EN ${String(remaining).padStart(2, "0")} s`;
-
-      // appendChild también mantiene el orden correcto sin recrear la tarjeta.
       column.appendChild(card);
     });
-
     [...continuityCards.entries()].forEach(([key, card]) => {
       if (!activeKeys.has(key)) {
         card.remove();
         continuityCards.delete(key);
       }
     });
-
     column.classList.toggle("visible", continuityCards.size > 0);
   }
 
   async function loadTvData({ quiet = false } = {}) {
     if (!quiet) setStatus("Cargando parrilla…", true);
-
     try {
       const data = await fetchJson(TV_DATA_URL);
       if (Number(data.schema_version || 0) < 2 || !Array.isArray(data.channels) || !Array.isArray(data.schedule)) {
         throw new Error("El endpoint TV todavía no está publicando schema_version 2.");
       }
-
-      if (data.tv_config && data.tv_config.valid === false) {
-        log("Errores de configuración", data.tv_config.errors || []);
-      }
-
+      if (data.tv_config && data.tv_config.valid === false) log("Errores de configuración", data.tv_config.errors || []);
       tvData = data;
       engine = new window.AVTVEngine.TVEngine(data);
-      selectedChannel = engine.resolveChannel(selectedChannel && selectedChannel.channel_id || resolveRequestedChannel());
-
+      selectedChannel = engine.resolveChannel(
+        (selectedChannel && selectedChannel.channel_id) || resolveRequestedChannel()
+      );
       if (!selectedChannel) throw new Error("No hay canales activos.");
-
       renderChannelMenu();
       updateUrlChannel(selectedChannel);
       setStatus("", false);
-      syncPlayback(true);
+      syncPlayback(!currentVideoId);
       log("TV cargada", {
         schema: data.schema_version,
         channels: engine.channels.length,
@@ -321,6 +416,7 @@
       });
     } catch (error) {
       log("Error cargando TV", String(error && error.message || error));
+      trackTv("tv_error", { ...broadcastDetails(), error_code: "feed_load_error" }, true);
       if (!engine) setStatus(`No se pudo cargar la emisión: ${error.message || error}`, true);
     }
   }
@@ -328,9 +424,7 @@
   function expectedBroadcast() {
     if (!engine || !selectedChannel) return null;
     let broadcast = engine.resolve(selectedChannel.channel_id, Date.now());
-
     if (broadcast && broadcast.media && failedVideoIds.has(broadcast.media.youtube_id)) {
-      // Error local de YouTube: dejamos la señal en reserva hasta el siguiente ítem.
       broadcast = { ...broadcast, kind: "standby", media: null };
     }
     return broadcast;
@@ -346,13 +440,10 @@
   function ensureAutoplay() {
     if (!playerReady || !player) return;
     clearTimeout(fallbackMuteTimer);
-
     if (!soundEnabled) {
       try { player.mute(); } catch (_) {}
     }
-
     updateSoundButton();
-
     fallbackMuteTimer = setTimeout(() => {
       try {
         const state = player.getPlayerState();
@@ -364,10 +455,165 @@
     }, 1400);
   }
 
+  function selectedNextProgramChange(timestampMs = Date.now(), lookaheadSeconds = INTERMISSION_LOOKAHEAD_SECONDS) {
+    if (!engine || !selectedChannel) return null;
+    return engine.nextProgramChanges(timestampMs, lookaheadSeconds)
+      .find(change => change.channel && change.channel.channel_id === selectedChannel.channel_id) || null;
+  }
+
+  function beginIntermissionFromEnded() {
+    if (!engine || !selectedChannel || !currentBroadcast) return false;
+    const media = currentBroadcast.media;
+    if (!media || currentBroadcast.is_global_entity_block || String(media.type || "").toLowerCase() === "entity") return false;
+
+    const now = Date.now();
+    const change = selectedNextProgramChange(now);
+    if (!change || !change.current_program || !currentBroadcast.program ||
+        change.current_program.program_id !== currentBroadcast.program.program_id) return false;
+
+    const plannedSeconds = Math.max(0, (change.change_at_ms - now) / 1000);
+    if (plannedSeconds <= 0 || plannedSeconds > INTERMISSION_LOOKAHEAD_SECONDS) return false;
+
+    intermission = {
+      started_at_ms: now,
+      scheduled_start_ms: change.change_at_ms,
+      planned_seconds: plannedSeconds,
+      actual_seconds: plannedSeconds,
+      previous_program_id: currentBroadcast.program && currentBroadcast.program.program_id || "",
+      next_program_id: change.next_program && change.next_program.program_id || "",
+      buffering_ms: Math.round(mediaBufferingMs)
+    };
+
+    currentVideoId = "";
+    currentPlaybackContextKey = "";
+    showIntermissionScreen();
+
+    trackTv("tv_intermission_start", {
+      ...broadcastDetails(currentBroadcast),
+      intermission_planned_seconds: Number(plannedSeconds.toFixed(3)),
+      intermission_actual_seconds: Number(plannedSeconds.toFixed(3)),
+      playback_buffering_ms: Math.round(mediaBufferingMs)
+    });
+
+    clearTimeout(intermissionTimer);
+    intermissionTimer = setTimeout(finishIntermission, Math.max(0, change.change_at_ms - Date.now()));
+    log("intermission", { planned: plannedSeconds.toFixed(1), next: intermission.next_program_id });
+    return true;
+  }
+
+  function finishIntermission() {
+    if (!intermission) return;
+    const now = Date.now();
+    if (now < intermission.scheduled_start_ms) {
+      clearTimeout(intermissionTimer);
+      intermissionTimer = setTimeout(finishIntermission, intermission.scheduled_start_ms - now);
+      return;
+    }
+
+    const transition = intermission;
+    intermission = null;
+    intermissionTimer = null;
+    hideStandby();
+    pendingTransition = {
+      ...transition,
+      load_requested_at_ms: Date.now(),
+      startup_buffering_ms: 0,
+      reported: false
+    };
+    mediaBufferingMs = 0;
+    bufferingStartedAt = 0;
+    currentVideoId = "";
+    currentPlaybackContextKey = "";
+    syncPlayback(true);
+
+    clearTimeout(transitionTimeoutTimer);
+    transitionTimeoutTimer = setTimeout(() => {
+      if (!pendingTransition || pendingTransition.reported) return;
+      pendingTransition.reported = true;
+      const delay = Math.max(0, Date.now() - pendingTransition.scheduled_start_ms);
+      trackTv("tv_intermission_end", {
+        ...broadcastDetails(),
+        intermission_planned_seconds: Number(pendingTransition.planned_seconds.toFixed(3)),
+        intermission_actual_seconds: Number(pendingTransition.actual_seconds.toFixed(3)),
+        next_program_start_delay_ms: Math.round(delay),
+        intermission_success: 0,
+        playback_buffering_ms: Math.round(pendingTransition.startup_buffering_ms),
+        error_code: "program_start_timeout"
+      }, true);
+    }, PROGRAM_START_TIMEOUT_MS);
+  }
+
+  function reportTransitionStarted() {
+    if (!pendingTransition || pendingTransition.reported) return;
+    pendingTransition.reported = true;
+    clearTimeout(transitionTimeoutTimer);
+    transitionTimeoutTimer = null;
+    const delay = Math.max(0, Date.now() - pendingTransition.scheduled_start_ms);
+    const success = delay <= START_SUCCESS_TOLERANCE_MS;
+    trackTv("tv_intermission_end", {
+      ...broadcastDetails(),
+      intermission_planned_seconds: Number(pendingTransition.planned_seconds.toFixed(3)),
+      intermission_actual_seconds: Number(pendingTransition.actual_seconds.toFixed(3)),
+      next_program_start_delay_ms: Math.round(delay),
+      intermission_success: success ? 1 : 0,
+      playback_buffering_ms: Math.round(pendingTransition.startup_buffering_ms),
+      ...(success ? {} : { error_code: "intermission_overrun" })
+    }, true);
+    pendingTransition = null;
+  }
+
+  function trackPlaybackStart() {
+    const details = broadcastDetails();
+    const mediaKey = [details.channel_id || "", details.program_id || "", details.media_id || "", details.youtube_id || ""].join("|");
+    const programKey = [details.channel_id || "", details.program_id || ""].join("|");
+
+    if (!tvStartTracked) {
+      tvStartTracked = true;
+      trackTv("tv_start", details, true);
+    }
+    if (mediaKey && mediaKey !== lastTrackedMediaKey) {
+      lastTrackedMediaKey = mediaKey;
+      trackTv("tv_media_start", details);
+    }
+    if (details.program_id && programKey !== lastTrackedProgramKey) {
+      lastTrackedProgramKey = programKey;
+      trackTv("tv_program_change", details);
+    }
+    reportTransitionStarted();
+  }
+
+  function loadBroadcast(broadcast, expectedId, expectedOffset) {
+    currentVideoId = expectedId;
+    currentPlaybackContextKey = playbackContextKey(broadcast);
+    mediaBufferingMs = 0;
+    bufferingStartedAt = 0;
+    try {
+      player.loadVideoById({
+        videoId: expectedId,
+        startSeconds: Math.max(0, Math.floor(expectedOffset))
+      });
+      if (soundEnabled) {
+        player.unMute();
+        player.setVolume(100);
+      }
+      ensureAutoplay();
+      log("load", expectedId, "offset", expectedOffset.toFixed(1), "channel", selectedChannel.channel_id);
+    } catch (error) {
+      log("load error", String(error));
+      trackTv("tv_error", { ...broadcastDetails(broadcast), error_code: "player_load_error" }, true);
+    }
+  }
+
   function syncPlayback(force = false) {
     if (!engine || !selectedChannel) return;
+    if (intermission) {
+      if (Date.now() >= intermission.scheduled_start_ms) finishIntermission();
+      return;
+    }
 
+    const previousBroadcast = currentBroadcast;
     const broadcast = expectedBroadcast();
+    const nextContextKey = playbackContextKey(broadcast);
     currentBroadcast = broadcast;
     updateChannelHeader(broadcast);
     updateEntityCard(broadcast);
@@ -385,74 +631,98 @@
     hideStandby();
     const expectedId = broadcast.media.youtube_id;
     const expectedOffset = Math.max(0, Number(broadcast.media_offset_seconds || 0));
-
     if (!playerReady || !player) return;
 
-    if (force || currentVideoId !== expectedId) {
-      currentVideoId = expectedId;
-      try {
-        player.loadVideoById({
-          videoId: expectedId,
-          startSeconds: Math.max(0, Math.floor(expectedOffset))
-        });
-        if (soundEnabled) {
-          player.unMute();
-          player.setVolume(100);
-        }
-        ensureAutoplay();
-        log("load", expectedId, "offset", expectedOffset.toFixed(1), "channel", selectedChannel.channel_id);
-      } catch (error) {
-        log("load error", String(error));
-      }
-      return;
+    const contextChanged = Boolean(previousBroadcast && nextContextKey !== currentPlaybackContextKey);
+    if (force || !currentVideoId || contextChanged) {
+      loadBroadcast(broadcast, expectedId, expectedOffset);
     }
+  }
 
-    try {
-      const actual = Number(player.getCurrentTime() || 0);
-      if (Math.abs(actual - expectedOffset) > MAX_DRIFT_SECONDS) {
-        player.seekTo(expectedOffset, true);
-        log("resync", expectedId, "actual", actual.toFixed(1), "expected", expectedOffset.toFixed(1));
-      }
-    } catch (_) {}
+  function handleBufferingStart() {
+    if (!bufferingStartedAt) bufferingStartedAt = performance.now();
+  }
+
+  function handleBufferingEnd() {
+    if (!bufferingStartedAt) return;
+    const duration = Math.max(0, performance.now() - bufferingStartedAt);
+    bufferingStartedAt = 0;
+    mediaBufferingMs += duration;
+    if (pendingTransition) pendingTransition.startup_buffering_ms += duration;
+
+    if (duration >= BUFFERING_DEGRADED_MS && Date.now() - lastDegradedReportAt >= DEGRADED_REPORT_COOLDOWN_MS) {
+      lastDegradedReportAt = Date.now();
+      trackTv("tv_playback_degraded", {
+        ...broadcastDetails(),
+        playback_buffering_ms: Math.round(duration),
+        error_code: "buffering_prolonged"
+      }, true);
+    }
+    log("buffering", Math.round(duration), "ms");
   }
 
   function toggleSound() {
     soundEnabled = !soundEnabled;
-
     try {
       if (soundEnabled) {
         player.unMute();
         player.setVolume(100);
         player.playVideo();
+        trackTv("tv_sound_on", broadcastDetails());
       } else {
         player.mute();
       }
     } catch (_) {}
-
     updateSoundButton();
   }
 
-  function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(error => log("fullscreen", String(error)));
-    } else {
-      document.exitFullscreen().catch(error => log("fullscreen", String(error)));
+  async function toggleFullscreen() {
+    const root = document.documentElement;
+    if (!fullscreenSupported()) {
+      log("fullscreen", "not supported");
+      trackTv("tv_error", { ...broadcastDetails(), error_code: "fullscreen_unsupported" }, true);
+      return;
+    }
+    try {
+      if (!fullscreenElement()) {
+        const request = root.requestFullscreen || root.webkitRequestFullscreen;
+        await request.call(root);
+      } else {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+      }
+    } catch (error) {
+      log("fullscreen", String(error));
+      trackTv("tv_error", { ...broadcastDetails(), error_code: "fullscreen_failed" }, true);
     }
   }
 
   function updateFullscreenLabel() {
-    $("fullscreenButton").textContent = document.fullscreenElement ? "Salir de pantalla completa" : "Pantalla completa";
+    const button = $("fullscreenButton");
+    if (!fullscreenSupported()) {
+      button.hidden = true;
+      return;
+    }
+    button.hidden = false;
+    const active = Boolean(fullscreenElement());
+    button.textContent = active ? "Salir de pantalla completa" : "Pantalla completa";
+    if (active) trackTv("tv_fullscreen_on", broadcastDetails());
+  }
+
+  function playbackHealthTick() {
+    if (intermission && Date.now() >= intermission.scheduled_start_ms) {
+      finishIntermission();
+      return;
+    }
+    syncPlayback(false);
   }
 
   function startTimers() {
-    clearInterval(syncTimer);
+    clearInterval(healthTimer);
     clearInterval(uiTimer);
     clearInterval(refreshTimer);
-
-    syncTimer = setInterval(() => syncPlayback(false), PLAYBACK_SYNC_MS);
-    uiTimer = setInterval(() => {
-      renderContinuity();
-    }, UI_TICK_MS);
+    healthTimer = setInterval(playbackHealthTick, PLAYBACK_HEALTH_MS);
+    uiTimer = setInterval(renderContinuity, UI_TICK_MS);
     refreshTimer = setInterval(() => loadTvData({ quiet: true }), DATA_REFRESH_MS);
   }
 
@@ -479,14 +749,41 @@
           syncPlayback(true);
         },
         onStateChange(event) {
-          if (event.data === window.YT.PlayerState.ENDED) {
-            setTimeout(() => syncPlayback(true), 100);
+          const state = event.data;
+          if (lastPlayerState === window.YT.PlayerState.BUFFERING && state !== window.YT.PlayerState.BUFFERING) {
+            handleBufferingEnd();
+          }
+          if (state === window.YT.PlayerState.BUFFERING) handleBufferingStart();
+          lastPlayerState = state;
+
+          if (state === window.YT.PlayerState.PLAYING) trackPlaybackStart();
+
+          if (state === window.YT.PlayerState.ENDED) {
+            if (
+              currentBroadcast &&
+              (currentBroadcast.is_global_entity_block ||
+               String(currentBroadcast.media && currentBroadcast.media.type || "").toLowerCase() === "entity")
+            ) {
+              currentVideoId = "";
+              syncPlayback(true);
+              return;
+            }
+            if (beginIntermissionFromEnded()) return;
+            currentVideoId = "";
+            syncPlayback(true);
           }
         },
         onError(event) {
+          handleBufferingEnd();
           if (currentVideoId) failedVideoIds.add(currentVideoId);
           log("YouTube error", event.data, currentVideoId);
+          trackTv("tv_error", {
+            ...broadcastDetails(),
+            playback_buffering_ms: Math.round(mediaBufferingMs),
+            error_code: `youtube_${event.data}`
+          }, true);
           currentVideoId = "";
+          currentPlaybackContextKey = "";
           syncPlayback(true);
         }
       }
@@ -507,13 +804,32 @@
     $("soundButton").addEventListener("click", toggleSound);
     $("fullscreenButton").addEventListener("click", toggleFullscreen);
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenLabel);
+
+    $("entityLink").addEventListener("click", () => {
+      trackTv("tv_entity_open", {
+        ...broadcastDetails(),
+        action_from: currentBroadcast && currentBroadcast.is_global_entity_block ? "entity_promo" : "entity_card",
+        action_to: $("entityLink").href || ""
+      });
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") return;
+      if (intermission && Date.now() >= intermission.scheduled_start_ms) {
+        finishIntermission();
+      } else {
+        currentPlaybackContextKey = "";
+        syncPlayback(true);
+      }
+    });
 
     document.addEventListener("keydown", event => {
       if (event.key === "Escape") closeChannelMenu();
-      if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        toggleFullscreen();
-      }
+      if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();
     });
+
+    updateFullscreenLabel();
   }
 
   async function init() {
