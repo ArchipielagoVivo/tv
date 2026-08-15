@@ -11,15 +11,12 @@
   const DEGRADED_REPORT_COOLDOWN_MS = 60 * 1000;
   const START_SUCCESS_TOLERANCE_MS = 2500;
   const PROGRAM_START_TIMEOUT_MS = 20 * 1000;
-<<<<<<< HEAD
-=======
 
   // Archipiélago Vivo TV funciona como señal lineal:
   // una pausa accidental o provocada por el usuario no debe dejar
   // la instancia retrasada respecto a la emisión.
   const PAUSE_PLAY_RETRY_MS = 120;
   const PAUSE_FORCE_LIVE_MS = 1500;
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
 
   const $ = id => document.getElementById(id);
   const debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
@@ -43,11 +40,8 @@
   let refreshTimer = null;
   let intermissionTimer = null;
   let transitionTimeoutTimer = null;
-<<<<<<< HEAD
-=======
   let pausePlayTimer = null;
   let pauseForceLiveTimer = null;
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   let intermission = null;
   let pendingTransition = null;
 
@@ -187,8 +181,6 @@
     ].join("|");
   }
 
-<<<<<<< HEAD
-=======
   function firstText(...values) {
     for (const value of values) {
       const text = String(value == null ? "" : value).trim();
@@ -376,7 +368,6 @@
     }
   }
 
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   function renderChannelMenu() {
     if (!engine) return;
     const menu = $("channelMenu");
@@ -426,10 +417,7 @@
   function cancelIntermission() {
     clearTimeout(intermissionTimer);
     clearTimeout(transitionTimeoutTimer);
-<<<<<<< HEAD
-=======
     clearPauseRecovery();
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     intermissionTimer = null;
     transitionTimeoutTimer = null;
     intermission = null;
@@ -442,10 +430,7 @@
     if (!channel) return;
     const previous = selectedChannel && selectedChannel.channel_id;
     cancelIntermission();
-<<<<<<< HEAD
-=======
     closeInfoPanel();
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     selectedChannel = channel;
     if (previous && previous !== channel.channel_id) {
       trackTv("tv_channel_change", {
@@ -698,10 +683,7 @@
 
     currentVideoId = "";
     currentPlaybackContextKey = "";
-<<<<<<< HEAD
-=======
     closeInfoPanel();
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     showIntermissionScreen();
 
     trackTv("tv_intermission_start", {
@@ -853,8 +835,6 @@
     const contextChanged = Boolean(previousBroadcast && nextContextKey !== currentPlaybackContextKey);
     if (force || !currentVideoId || contextChanged) {
       loadBroadcast(broadcast, expectedId, expectedOffset);
-<<<<<<< HEAD
-=======
     }
   }
 
@@ -908,32 +888,8 @@
       state = player.getPlayerState();
     } catch (_) {
       return;
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     }
-  }
 
-<<<<<<< HEAD
-  function handleBufferingStart() {
-    if (!bufferingStartedAt) bufferingStartedAt = performance.now();
-  }
-
-  function handleBufferingEnd() {
-    if (!bufferingStartedAt) return;
-    const duration = Math.max(0, performance.now() - bufferingStartedAt);
-    bufferingStartedAt = 0;
-    mediaBufferingMs += duration;
-    if (pendingTransition) pendingTransition.startup_buffering_ms += duration;
-
-    if (duration >= BUFFERING_DEGRADED_MS && Date.now() - lastDegradedReportAt >= DEGRADED_REPORT_COOLDOWN_MS) {
-      lastDegradedReportAt = Date.now();
-      trackTv("tv_playback_degraded", {
-        ...broadcastDetails(),
-        playback_buffering_ms: Math.round(duration),
-        error_code: "buffering_prolonged"
-      }, true);
-    }
-    log("buffering", Math.round(duration), "ms");
-=======
     // Si playVideo() ya consiguió reanudar, no hacemos una
     // resincronización innecesaria.
     if (state !== window.YT.PlayerState.PAUSED) return;
@@ -982,7 +938,6 @@
       forceLiveAfterPause,
       PAUSE_FORCE_LIVE_MS
     );
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   }
 
   function toggleSound() {
@@ -1078,11 +1033,6 @@
             handleBufferingEnd();
           }
           if (state === window.YT.PlayerState.BUFFERING) handleBufferingStart();
-<<<<<<< HEAD
-          lastPlayerState = state;
-
-          if (state === window.YT.PlayerState.PLAYING) trackPlaybackStart();
-=======
 
           if (state !== window.YT.PlayerState.PAUSED) {
             clearPauseRecovery();
@@ -1098,7 +1048,6 @@
           if (state === window.YT.PlayerState.PLAYING) {
             trackPlaybackStart();
           }
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
 
           if (state === window.YT.PlayerState.ENDED) {
             if (
@@ -1165,32 +1114,6 @@
     $("infoCloseButton").addEventListener("click", closeInfoPanel);
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
     document.addEventListener("webkitfullscreenchange", updateFullscreenLabel);
-<<<<<<< HEAD
-
-    $("entityLink").addEventListener("click", () => {
-      trackTv("tv_entity_open", {
-        ...broadcastDetails(),
-        action_from: currentBroadcast && currentBroadcast.is_global_entity_block ? "entity_promo" : "entity_card",
-        action_to: $("entityLink").href || ""
-      });
-    });
-
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState !== "visible") return;
-      if (intermission && Date.now() >= intermission.scheduled_start_ms) {
-        finishIntermission();
-      } else {
-        currentPlaybackContextKey = "";
-        syncPlayback(true);
-      }
-    });
-
-    document.addEventListener("keydown", event => {
-      if (event.key === "Escape") closeChannelMenu();
-      if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();
-    });
-
-=======
 
     $("infoMapLink").addEventListener("click", () => {
       trackTv("tv_entity_open", {
@@ -1229,7 +1152,6 @@
       if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();
     });
 
->>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     updateFullscreenLabel();
   }
 
