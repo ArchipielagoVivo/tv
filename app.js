@@ -32,7 +32,7 @@
   let currentBroadcast = null;
   let currentPlaybackContextKey = "";
   let failedVideoIds = new Set();
-  let soundEnabled = false;
+  let soundEnabled = true;
   let fallbackMuteTimer = null;
   let currentEntityCardId = "";
   const continuityCards = new Map();
@@ -595,6 +595,17 @@
     updateUrlChannel(channel);
     currentVideoId = "";
     currentPlaybackContextKey = "";
+
+    soundEnabled = true;
+    updateSoundButton();
+
+    if (playerReady && player) {
+      try {
+        player.unMute();
+        player.setVolume(100);
+      } catch (_) {}
+    }
+
     syncPlayback(true);
 
     if (debugEnabled) {
@@ -1306,6 +1317,13 @@
           }
 
           if (state === window.YT.PlayerState.PLAYING) {
+            if (soundEnabled) {
+              try {
+                player.unMute();
+                player.setVolume(100);
+              } catch (_) {}
+            }
+
             trackPlaybackStart();
             updateInfoPanel(currentBroadcast);
           }
