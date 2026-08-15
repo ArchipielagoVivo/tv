@@ -117,6 +117,32 @@
     const channel = broadcast && broadcast.channel
       ? broadcast.channel
       : selectedChannel;
+    const entity = currentEntity(broadcast);
+
+    const isEntityPromo = Boolean(
+      media &&
+      (
+        String(media.type || "").toLowerCase() === "entity" ||
+        broadcast && broadcast.is_global_entity_block
+      )
+    );
+
+    const url = channelShareUrl(channel);
+
+    if (isEntityPromo && entity) {
+      const entityName = firstText(
+        entity.name,
+        entity.title,
+        media.title,
+        "una iniciativa de Archipiélago Vivo"
+      );
+
+      return {
+        title: entityName,
+        text: `Estoy viendo la presentación de ${entityName} en Archipiélago Vivo TV`,
+        url
+      };
+    }
 
     const emission = firstText(
       media && media.title,
@@ -131,12 +157,9 @@
       "Canarias"
     );
 
-    const url = channelShareUrl(channel);
-    const text = `Estoy viendo ${emission} sobre ${topic} en Archipiélago Vivo TV`;
-
     return {
       title: emission,
-      text,
+      text: `Estoy viendo ${emission} sobre ${topic} en Archipiélago Vivo TV`,
       url
     };
   }
@@ -378,11 +401,6 @@
         youtubeUrl.searchParams.set(
           "v",
           youtubeId
-        );
-
-        youtubeUrl.searchParams.set(
-          "autoplay",
-          "0"
         );
 
         mediaLink.href = youtubeUrl.toString();
