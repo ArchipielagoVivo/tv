@@ -11,6 +11,15 @@
   const DEGRADED_REPORT_COOLDOWN_MS = 60 * 1000;
   const START_SUCCESS_TOLERANCE_MS = 2500;
   const PROGRAM_START_TIMEOUT_MS = 20 * 1000;
+<<<<<<< HEAD
+=======
+
+  // Archipiélago Vivo TV funciona como señal lineal:
+  // una pausa accidental o provocada por el usuario no debe dejar
+  // la instancia retrasada respecto a la emisión.
+  const PAUSE_PLAY_RETRY_MS = 120;
+  const PAUSE_FORCE_LIVE_MS = 1500;
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
 
   const $ = id => document.getElementById(id);
   const debugEnabled = new URLSearchParams(location.search).get("debug") === "1";
@@ -34,6 +43,11 @@
   let refreshTimer = null;
   let intermissionTimer = null;
   let transitionTimeoutTimer = null;
+<<<<<<< HEAD
+=======
+  let pausePlayTimer = null;
+  let pauseForceLiveTimer = null;
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   let intermission = null;
   let pendingTransition = null;
 
@@ -173,6 +187,196 @@
     ].join("|");
   }
 
+<<<<<<< HEAD
+=======
+  function firstText(...values) {
+    for (const value of values) {
+      const text = String(value == null ? "" : value).trim();
+      if (text) return text;
+    }
+    return "";
+  }
+
+  function currentEntity(broadcast = currentBroadcast) {
+    const media = broadcast && broadcast.media;
+    if (!media || !media.entity_id || !tvData || !tvData.entities) return null;
+    return tvData.entities[media.entity_id] || null;
+  }
+
+  function setInfoRow(id, label, value) {
+    const row = $(id);
+    if (!row) return;
+
+    const text = String(value == null ? "" : value).trim();
+    row.hidden = !text;
+
+    if (!text) return;
+
+    const labelEl = row.querySelector(".info-label");
+    const valueEl = row.querySelector(".info-value");
+
+    if (labelEl) labelEl.textContent = label;
+    if (valueEl) valueEl.textContent = text;
+  }
+
+  function updateInfoPanel(broadcast = currentBroadcast) {
+    const button = $("infoButton");
+    const panel = $("infoPanel");
+    if (!button || !panel) return;
+
+    const channel = broadcast && broadcast.channel;
+    const program = broadcast && broadcast.program;
+    const media = broadcast && broadcast.media;
+    const entity = currentEntity(broadcast);
+
+    const hasEmission = Boolean(
+      broadcast &&
+      broadcast.kind === "media" &&
+      media
+    );
+
+    button.disabled = !hasEmission;
+    button.setAttribute(
+      "aria-disabled",
+      hasEmission ? "false" : "true"
+    );
+
+    const channelText = channel
+      ? [
+          channel.channel_number ? `CANAL ${channel.channel_number}` : "",
+          channel.name || channel.channel_id || ""
+        ].filter(Boolean).join(" · ")
+      : "";
+
+    setInfoRow(
+      "infoChannelRow",
+      "Canal",
+      channelText
+    );
+
+    setInfoRow(
+      "infoProgramRow",
+      "Programa",
+      program && firstText(
+        program.name,
+        program.title,
+        program.program_id
+      )
+    );
+
+    setInfoRow(
+      "infoMediaRow",
+      "Ahora",
+      media && firstText(
+        media.title,
+        media.name
+      )
+    );
+
+    const description = firstText(
+      media && media.description,
+      media && media.summary,
+      program && program.description,
+      program && program.summary
+    );
+
+    const descriptionEl = $("infoDescription");
+    if (descriptionEl) {
+      descriptionEl.textContent = description;
+      descriptionEl.hidden = !description;
+    }
+
+    const entityName = entity && firstText(
+      entity.name,
+      entity.title
+    );
+
+    setInfoRow(
+      "infoEntityRow",
+      "Entidad",
+      entityName
+    );
+
+    const territory = entity && [
+      firstText(
+        entity.island,
+        entity.av_island,
+        entity.isla
+      ),
+      firstText(
+        entity.municipality,
+        entity.av_municipality,
+        entity.municipio
+      )
+    ].filter(Boolean).join(" · ");
+
+    setInfoRow(
+      "infoTerritoryRow",
+      "Territorio",
+      territory
+    );
+
+    const mapLink = $("infoMapLink");
+    if (mapLink) {
+      const mapUrl = entity && entity.map_url
+        ? String(entity.map_url)
+        : "";
+
+      mapLink.hidden = !mapUrl;
+
+      if (mapUrl) {
+        mapLink.href = mapUrl;
+      } else {
+        mapLink.removeAttribute("href");
+      }
+    }
+
+    if (!hasEmission && panel.classList.contains("open")) {
+      closeInfoPanel();
+    }
+  }
+
+  function openInfoPanel() {
+    if (!currentBroadcast || !currentBroadcast.media) return;
+
+    updateInfoPanel(currentBroadcast);
+
+    const panel = $("infoPanel");
+    const button = $("infoButton");
+    if (!panel || !button) return;
+
+    panel.classList.add("open");
+    panel.setAttribute("aria-hidden", "false");
+    button.setAttribute("aria-expanded", "true");
+
+    trackTv(
+      "tv_program_info_open",
+      broadcastDetails()
+    );
+  }
+
+  function closeInfoPanel() {
+    const panel = $("infoPanel");
+    const button = $("infoButton");
+    if (!panel || !button) return;
+
+    panel.classList.remove("open");
+    panel.setAttribute("aria-hidden", "true");
+    button.setAttribute("aria-expanded", "false");
+  }
+
+  function toggleInfoPanel() {
+    const panel = $("infoPanel");
+    if (!panel) return;
+
+    if (panel.classList.contains("open")) {
+      closeInfoPanel();
+    } else {
+      openInfoPanel();
+    }
+  }
+
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   function renderChannelMenu() {
     if (!engine) return;
     const menu = $("channelMenu");
@@ -222,6 +426,10 @@
   function cancelIntermission() {
     clearTimeout(intermissionTimer);
     clearTimeout(transitionTimeoutTimer);
+<<<<<<< HEAD
+=======
+    clearPauseRecovery();
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     intermissionTimer = null;
     transitionTimeoutTimer = null;
     intermission = null;
@@ -234,6 +442,10 @@
     if (!channel) return;
     const previous = selectedChannel && selectedChannel.channel_id;
     cancelIntermission();
+<<<<<<< HEAD
+=======
+    closeInfoPanel();
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     selectedChannel = channel;
     if (previous && previous !== channel.channel_id) {
       trackTv("tv_channel_change", {
@@ -486,6 +698,10 @@
 
     currentVideoId = "";
     currentPlaybackContextKey = "";
+<<<<<<< HEAD
+=======
+    closeInfoPanel();
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     showIntermissionScreen();
 
     trackTv("tv_intermission_start", {
@@ -617,6 +833,7 @@
     currentBroadcast = broadcast;
     updateChannelHeader(broadcast);
     updateEntityCard(broadcast);
+    updateInfoPanel(broadcast);
     renderChannelMenu();
     renderContinuity();
 
@@ -636,6 +853,8 @@
     const contextChanged = Boolean(previousBroadcast && nextContextKey !== currentPlaybackContextKey);
     if (force || !currentVideoId || contextChanged) {
       loadBroadcast(broadcast, expectedId, expectedOffset);
+<<<<<<< HEAD
+=======
     }
   }
 
@@ -659,6 +878,111 @@
       }, true);
     }
     log("buffering", Math.round(duration), "ms");
+  }
+
+  function clearPauseRecovery() {
+    clearTimeout(pausePlayTimer);
+    clearTimeout(pauseForceLiveTimer);
+    pausePlayTimer = null;
+    pauseForceLiveTimer = null;
+  }
+
+  function canRecoverPausedPlayback() {
+    return Boolean(
+      playerReady &&
+      player &&
+      !intermission &&
+      currentVideoId &&
+      currentBroadcast &&
+      currentBroadcast.kind === "media" &&
+      currentBroadcast.media &&
+      currentBroadcast.media.youtube_id
+    );
+  }
+
+  function forceLiveAfterPause() {
+    if (!canRecoverPausedPlayback()) return;
+
+    let state = null;
+    try {
+      state = player.getPlayerState();
+    } catch (_) {
+      return;
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
+    }
+  }
+
+<<<<<<< HEAD
+  function handleBufferingStart() {
+    if (!bufferingStartedAt) bufferingStartedAt = performance.now();
+  }
+
+  function handleBufferingEnd() {
+    if (!bufferingStartedAt) return;
+    const duration = Math.max(0, performance.now() - bufferingStartedAt);
+    bufferingStartedAt = 0;
+    mediaBufferingMs += duration;
+    if (pendingTransition) pendingTransition.startup_buffering_ms += duration;
+
+    if (duration >= BUFFERING_DEGRADED_MS && Date.now() - lastDegradedReportAt >= DEGRADED_REPORT_COOLDOWN_MS) {
+      lastDegradedReportAt = Date.now();
+      trackTv("tv_playback_degraded", {
+        ...broadcastDetails(),
+        playback_buffering_ms: Math.round(duration),
+        error_code: "buffering_prolonged"
+      }, true);
+    }
+    log("buffering", Math.round(duration), "ms");
+=======
+    // Si playVideo() ya consiguió reanudar, no hacemos una
+    // resincronización innecesaria.
+    if (state !== window.YT.PlayerState.PAUSED) return;
+
+    log("paused -> force live", currentVideoId);
+
+    trackTv("tv_playback_resync", {
+      ...broadcastDetails(),
+      action_from: "paused",
+      action_to: "live"
+    }, true);
+
+    currentVideoId = "";
+    currentPlaybackContextKey = "";
+
+    // syncPlayback(true) consulta de nuevo el motor con Date.now(),
+    // por lo que carga el medio y offset que corresponden al directo.
+    syncPlayback(true);
+  }
+
+  function handlePausedPlayback() {
+    if (!canRecoverPausedPlayback()) return;
+
+    clearPauseRecovery();
+
+    log("paused", currentVideoId);
+
+    // Primer nivel: la pausa dura sólo unas décimas.
+    // Intentamos continuar sin recargar el iframe ni alterar la calidad.
+    pausePlayTimer = setTimeout(() => {
+      if (!canRecoverPausedPlayback()) return;
+
+      try {
+        if (
+          player.getPlayerState() ===
+          window.YT.PlayerState.PAUSED
+        ) {
+          player.playVideo();
+        }
+      } catch (_) {}
+    }, PAUSE_PLAY_RETRY_MS);
+
+    // Segundo nivel: si el navegador sigue realmente pausado,
+    // abandonamos ese punto y volvemos a la emisión actual.
+    pauseForceLiveTimer = setTimeout(
+      forceLiveAfterPause,
+      PAUSE_FORCE_LIVE_MS
+    );
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
   }
 
   function toggleSound() {
@@ -754,9 +1078,27 @@
             handleBufferingEnd();
           }
           if (state === window.YT.PlayerState.BUFFERING) handleBufferingStart();
+<<<<<<< HEAD
           lastPlayerState = state;
 
           if (state === window.YT.PlayerState.PLAYING) trackPlaybackStart();
+=======
+
+          if (state !== window.YT.PlayerState.PAUSED) {
+            clearPauseRecovery();
+          }
+
+          lastPlayerState = state;
+
+          if (state === window.YT.PlayerState.PAUSED) {
+            handlePausedPlayback();
+            return;
+          }
+
+          if (state === window.YT.PlayerState.PLAYING) {
+            trackPlaybackStart();
+          }
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
 
           if (state === window.YT.PlayerState.ENDED) {
             if (
@@ -799,12 +1141,31 @@
 
     document.addEventListener("click", event => {
       if (!$("channelSwitcher").contains(event.target)) closeChannelMenu();
+
+      const panel = $("infoPanel");
+      const infoButton = $("infoButton");
+
+      if (
+        panel &&
+        panel.classList.contains("open") &&
+        !panel.contains(event.target) &&
+        infoButton &&
+        !infoButton.contains(event.target)
+      ) {
+        closeInfoPanel();
+      }
     });
 
     $("soundButton").addEventListener("click", toggleSound);
     $("fullscreenButton").addEventListener("click", toggleFullscreen);
+    $("infoButton").addEventListener("click", event => {
+      event.stopPropagation();
+      toggleInfoPanel();
+    });
+    $("infoCloseButton").addEventListener("click", closeInfoPanel);
     document.addEventListener("fullscreenchange", updateFullscreenLabel);
     document.addEventListener("webkitfullscreenchange", updateFullscreenLabel);
+<<<<<<< HEAD
 
     $("entityLink").addEventListener("click", () => {
       trackTv("tv_entity_open", {
@@ -829,6 +1190,46 @@
       if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();
     });
 
+=======
+
+    $("infoMapLink").addEventListener("click", () => {
+      trackTv("tv_entity_open", {
+        ...broadcastDetails(),
+        action_from: "program_info",
+        action_to: $("infoMapLink").href || ""
+      });
+    });
+
+    $("entityLink").addEventListener("click", () => {
+      trackTv("tv_entity_open", {
+        ...broadcastDetails(),
+        action_from: currentBroadcast && currentBroadcast.is_global_entity_block ? "entity_promo" : "entity_card",
+        action_to: $("entityLink").href || ""
+      });
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState !== "visible") {
+        clearPauseRecovery();
+        return;
+      }
+      if (intermission && Date.now() >= intermission.scheduled_start_ms) {
+        finishIntermission();
+      } else {
+        currentPlaybackContextKey = "";
+        syncPlayback(true);
+      }
+    });
+
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape") {
+        closeChannelMenu();
+        closeInfoPanel();
+      }
+      if (event.key.toLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) toggleFullscreen();
+    });
+
+>>>>>>> 7325c30 (ARCHIPIÉLAGO VIVO TV — información de emisión + pausa live)
     updateFullscreenLabel();
   }
 

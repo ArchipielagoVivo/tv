@@ -9,6 +9,7 @@
   <link rel="icon" href="favicon.ico" sizes="any">
   <link rel="icon" href="logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="tv-info.css">
 </head>
 <body>
   <header class="site-header">
@@ -69,7 +70,49 @@
       </a>
     </aside>
 
+    <aside class="program-info-panel" id="infoPanel" aria-hidden="true" aria-label="Información de la emisión">
+      <div class="program-info-head">
+        <div>
+          <span class="program-info-kicker">AHORA EN ARCHIPIÉLAGO VIVO TV</span>
+          <strong>Información de la emisión</strong>
+        </div>
+        <button class="program-info-close" id="infoCloseButton" type="button" aria-label="Cerrar información">×</button>
+      </div>
+
+      <div class="program-info-body">
+        <div class="program-info-row" id="infoChannelRow">
+          <span class="info-label">Canal</span>
+          <strong class="info-value"></strong>
+        </div>
+        <div class="program-info-row" id="infoProgramRow">
+          <span class="info-label">Programa</span>
+          <strong class="info-value"></strong>
+        </div>
+        <div class="program-info-row" id="infoMediaRow">
+          <span class="info-label">Ahora</span>
+          <strong class="info-value"></strong>
+        </div>
+        <p class="program-info-description" id="infoDescription" hidden></p>
+        <div class="program-info-row" id="infoEntityRow" hidden>
+          <span class="info-label">Entidad</span>
+          <strong class="info-value"></strong>
+        </div>
+        <div class="program-info-row" id="infoTerritoryRow" hidden>
+          <span class="info-label">Territorio</span>
+          <strong class="info-value"></strong>
+        </div>
+        <a class="program-info-link" id="infoMapLink" href="#" target="_blank" rel="noopener noreferrer" hidden>
+          Ver ficha en el mapa
+        </a>
+      </div>
+    </aside>
+
     <div class="tv-controls">
+      <button class="tv-control tv-control-icon" id="infoButton" type="button"
+              aria-label="Información de la emisión"
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              disabled>ⓘ</button>
       <button class="tv-control" id="fullscreenButton" type="button">Pantalla completa</button>
       <button class="tv-control" id="soundButton" type="button">Activar sonido</button>
     </div>
