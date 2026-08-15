@@ -257,18 +257,23 @@ ArchipielagoVivo/data
 ## Archivos
 
 ```text
-index.html          interfaz
-styles.css          diseño responsive
-tv-engine.js        motor determinista de parrilla
-app.js              datos, reproductor, UI y continuidad
-analytics.js        analítica de navegación
-logo*.svg           identidad
-tv v1.html          versiones históricas
-tv v2.html
-tv v3.html
-tv v4.html
-CNAME               tv.archipielagovivo.org
-```
+AJUSTES_UI_CONTINUIDAD.md   notas y ajustes de continuidad e interfaz
+CAMBIOS_IMPLEMENTADOS.md    registro de cambios ya implementados
+CNAME                       dominio tv.archipielagovivo.org
+README.md                   documentación del proyecto
+analytics.js                analítica de navegación
+android-chrome-192x192.png  icono para Android/Chrome
+android-chrome-512x512.png  icono para Android/Chrome
+app.js                      datos, reproductor, UI y continuidad
+apple-touch-icon.png        icono para dispositivos Apple
+favicon-16x16.png           favicon 16×16
+favicon-32x32.png           favicon 32×32
+favicon.ico                 favicon principal
+index.html                  interfaz
+logo.svg                    identidad
+site.webmanifest            manifiesto web/PWA
+styles.css                  diseño responsive
+tv-engine.js                motor determinista de parrilla
 
 ## Contrato de datos
 
