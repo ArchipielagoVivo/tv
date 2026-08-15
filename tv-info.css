@@ -178,3 +178,67 @@
     width: auto;
   }
 }
+
+
+/* Compartir Archipiélago Vivo TV:
+   se coloca por encima del control Compartir propio de YouTube. */
+.share-control {
+  position: absolute;
+  z-index: 27;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 52px);
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: .48rem;
+  padding: 0 .82rem;
+  border: 1px solid rgba(255,255,255,.2);
+  border-radius: 999px;
+  background: rgba(0,0,0,.72);
+  color: #fff;
+  font: inherit;
+  font-size: .75rem;
+  font-weight: 680;
+  cursor: pointer;
+  backdrop-filter: blur(9px);
+  box-shadow: 0 8px 26px rgba(0,0,0,.28);
+}
+
+.share-control:hover,
+.share-control:focus-visible {
+  border-color: rgba(255,255,255,.4);
+  background: rgba(0,0,0,.9);
+}
+
+.share-control > span:first-child {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.info-media-link {
+  color: #fff;
+  text-decoration: underline;
+  text-decoration-color: rgba(254,239,100,.55);
+  text-decoration-thickness: 1px;
+  text-underline-offset: .18em;
+}
+
+.info-media-link[href]:hover,
+.info-media-link[href]:focus-visible {
+  color: var(--accent);
+  text-decoration-color: currentColor;
+}
+
+.info-media-link:not([href]) {
+  text-decoration: none;
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .share-control {
+    left: 8px;
+    bottom: 52px;
+    min-height: 36px;
+    font-size: .68rem;
+  }
+}

@@ -96,6 +96,84 @@
     localStorage.setItem("avtv_channel", channel.slug || channel.channel_id);
   }
 
+  function channelShareUrl(channel = selectedChannel) {
+    const url = new URL("https://tv.archipielagovivo.org/");
+    if (channel) {
+      url.searchParams.set(
+        "channel",
+        channel.slug || channel.channel_id
+      );
+    }
+    return url.toString();
+  }
+
+  function currentSharePayload() {
+    const broadcast = currentBroadcast;
+    const media = broadcast && broadcast.media;
+    const program = broadcast && broadcast.program;
+    const channel = broadcast && broadcast.channel
+      ? broadcast.channel
+      : selectedChannel;
+
+    const emission = firstText(
+      media && media.title,
+      media && media.name,
+      program && program.name,
+      "Archipiélago Vivo TV"
+    );
+
+    const topic = firstText(
+      program && program.name,
+      channel && channel.name,
+      "Canarias"
+    );
+
+    const url = channelShareUrl(channel);
+    const text = `Estoy viendo ${emission} sobre ${topic} en Archipiélago Vivo TV`;
+
+    return {
+      title: emission,
+      text,
+      url
+    };
+  }
+
+  async function shareCurrentBroadcast() {
+    const payload = currentSharePayload();
+
+    trackTv("tv_share", {
+      ...broadcastDetails(),
+      action_from: "player",
+      action_to: "share"
+    });
+
+    if (navigator.share) {
+      try {
+        await navigator.share(payload);
+        return;
+      } catch (error) {
+        if (error && error.name === "AbortError") return;
+        log("share", String(error));
+      }
+    }
+
+    const fallbackText = `${payload.text}\n${payload.url}`;
+
+    try {
+      await navigator.clipboard.writeText(fallbackText);
+      const button = $("shareButton");
+      if (button) {
+        const original = button.innerHTML;
+        button.textContent = "Enlace copiado";
+        setTimeout(() => {
+          button.innerHTML = original;
+        }, 1800);
+      }
+    } catch (_) {
+      window.prompt("Copia este enlace para compartir la emisión:", fallbackText);
+    }
+  }
+
   function escapeText(value) {
     return String(value == null ? "" : value)
       .replaceAll("&", "&amp;")
@@ -264,6 +342,29 @@
         media.name
       )
     );
+
+    const mediaLink = $("infoMediaLink");
+    if (mediaLink) {
+      const youtubeId = media && media.youtube_id
+        ? String(media.youtube_id).trim()
+        : "";
+
+      if (youtubeId) {
+        mediaLink.href =
+          `https://www.youtube.com/watch?v=${encodeURIComponent(youtubeId)}&autoplay=0`;
+        mediaLink.target = "_blank";
+        mediaLink.rel = "noopener noreferrer";
+        mediaLink.setAttribute(
+          "aria-label",
+          `${firstText(media.title, media.name, "Vídeo")} · abrir en YouTube`
+        );
+      } else {
+        mediaLink.removeAttribute("href");
+        mediaLink.removeAttribute("target");
+        mediaLink.removeAttribute("rel");
+        mediaLink.removeAttribute("aria-label");
+      }
+    }
 
     const description = firstText(
       media && media.description,
@@ -1105,6 +1206,7 @@
       }
     });
 
+    $("shareButton").addEventListener("click", shareCurrentBroadcast);
     $("soundButton").addEventListener("click", toggleSound);
     $("fullscreenButton").addEventListener("click", toggleFullscreen);
     $("infoButton").addEventListener("click", event => {

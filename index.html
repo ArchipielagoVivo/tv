@@ -90,7 +90,11 @@
         </div>
         <div class="program-info-row" id="infoMediaRow">
           <span class="info-label">Ahora</span>
-          <strong class="info-value"></strong>
+          <a class="info-value info-media-link"
+             id="infoMediaLink"
+             href="#"
+             target="_blank"
+             rel="noopener noreferrer"></a>
         </div>
         <p class="program-info-description" id="infoDescription" hidden></p>
         <div class="program-info-row" id="infoEntityRow" hidden>
@@ -106,6 +110,11 @@
         </a>
       </div>
     </aside>
+
+    <button class="share-control" id="shareButton" type="button" aria-label="Compartir esta emisión">
+      <span aria-hidden="true">↗</span>
+      <span>Compartir</span>
+    </button>
 
     <div class="tv-controls">
       <button class="tv-control tv-control-icon" id="infoButton" type="button"
