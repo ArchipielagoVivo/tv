@@ -2,7 +2,7 @@
   "use strict";
 
   const TV_DATA_URL =
-    "https://script.google.com/macros/s/AKfycbxcmJ4_kBZKJe9Npa7lQ4kcQzRdEN_j6Xc11zq2T6ak628dgi4VYcGZv3VNVyGr8KLc/exec?export=tv";
+    "https://data.archipielagovivo.org/tv/feed.json";
 
   const DATA_REFRESH_MS = 5 * 60 * 1000;
   const PLAYBACK_SYNC_MS = 5000;
