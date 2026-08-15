@@ -797,22 +797,38 @@
   function updateSoundButton() {
     const button = $("soundButton");
     button.classList.add("visible");
-    button.textContent = soundEnabled ? "Desactivar sonido" : "Activar sonido";
+    button.textContent = soundEnabled ? "Silenciar" : "Activar sonido";
     button.setAttribute("aria-pressed", soundEnabled ? "true" : "false");
   }
 
   function ensureAutoplay() {
     if (!playerReady || !player) return;
+
     clearTimeout(fallbackMuteTimer);
-    if (!soundEnabled) {
-      try { player.mute(); } catch (_) {}
-    }
+
+    try {
+      if (soundEnabled) {
+        player.unMute();
+        player.setVolume(100);
+      } else {
+        player.mute();
+      }
+    } catch (_) {}
+
     updateSoundButton();
+
     fallbackMuteTimer = setTimeout(() => {
       try {
         const state = player.getPlayerState();
+
+        if (soundEnabled) {
+          player.unMute();
+          player.setVolume(100);
+        } else {
+          player.mute();
+        }
+
         if (state !== window.YT.PlayerState.PLAYING) {
-          if (!soundEnabled) player.mute();
           player.playVideo();
         }
       } catch (_) {}
@@ -1293,8 +1309,13 @@
       events: {
         onReady() {
           playerReady = true;
-          soundEnabled = false;
-          try { player.mute(); } catch (_) {}
+          soundEnabled = true;
+
+          try {
+            player.unMute();
+            player.setVolume(100);
+          } catch (_) {}
+
           updateSoundButton();
           syncPlayback(true);
         },
