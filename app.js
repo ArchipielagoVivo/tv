@@ -164,8 +164,120 @@
     };
   }
 
+  async function buildShareImageFile() {
+    const broadcast = currentBroadcast;
+    const media = broadcast && broadcast.media;
+
+    if (!media) {
+      log("share_image", {
+        ok: false,
+        reason: "no_media"
+      });
+      return null;
+    }
+
+    const youtubeId = firstText(
+      media.youtube_id,
+      currentVideoId
+    );
+
+    const thumbnailUrl = firstText(
+      media.thumbnail,
+      youtubeId
+        ? `https://i.ytimg.com/vi/${encodeURIComponent(youtubeId)}/maxresdefault.jpg`
+        : ""
+    );
+
+    if (!thumbnailUrl) {
+      log("share_image", {
+        ok: false,
+        reason: "no_thumbnail"
+      });
+      return null;
+    }
+
+    try {
+      const response = await fetch(thumbnailUrl, {
+        mode: "cors",
+        credentials: "omit",
+        cache: "force-cache"
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const blob = await response.blob();
+
+      if (!blob || blob.size <= 0) {
+        throw new Error("empty_blob");
+      }
+
+      let mimeType = String(blob.type || "").toLowerCase();
+
+      if (!mimeType.startsWith("image/")) {
+        mimeType = "image/jpeg";
+      }
+
+      const extension =
+        mimeType.includes("png") ? "png" :
+        mimeType.includes("webp") ? "webp" :
+        mimeType.includes("gif") ? "gif" :
+        "jpg";
+
+      const safeBaseName = firstText(
+        media.title,
+        media.media_id,
+        "archipielago-vivo-tv"
+      )
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 80) || "archipielago-vivo-tv";
+
+      const file = new File(
+        [blob],
+        `${safeBaseName}.${extension}`,
+        { type: mimeType }
+      );
+
+      log("share_image", {
+        ok: true,
+        source: thumbnailUrl,
+        type: mimeType,
+        bytes: blob.size
+      });
+
+      return file;
+    } catch (error) {
+      log("share_image", {
+        ok: false,
+        reason: "fetch_failed",
+        source: thumbnailUrl,
+        error: String(
+          error && error.message
+            ? error.message
+            : error
+        )
+      });
+
+      return null;
+    }
+  }
+
   async function shareCurrentBroadcast() {
     const payload = currentSharePayload();
+
+    // En muchos share targets, "url" se trata como un campo separado y
+    // puede acabar desplazando el texto. Enviamos mensaje + enlace juntos
+    // como un único cuerpo de texto para que viajen como una unidad.
+    const shareText = [
+      payload.text,
+      payload.url
+    ]
+      .filter(Boolean)
+      .join("\n");
 
     trackTv("tv_share", {
       ...broadcastDetails(),
@@ -173,31 +285,116 @@
       action_to: "share"
     });
 
-    if (navigator.share) {
-      try {
-        await navigator.share(payload);
-        return;
-      } catch (error) {
-        if (error && error.name === "AbortError") return;
-        log("share", String(error));
-      }
-    }
-
-    const fallbackText = `${payload.text}\n${payload.url}`;
+    let imageFile = null;
 
     try {
-      await navigator.clipboard.writeText(fallbackText);
+      imageFile = await buildShareImageFile();
+    } catch (_) {
+      imageFile = null;
+    }
+
+    if (navigator.share) {
+      // Preferencia 1: imagen + mensaje + enlace.
+      if (
+        imageFile &&
+        typeof navigator.canShare === "function"
+      ) {
+        try {
+          const filePayload = {
+            files: [imageFile]
+          };
+
+          const filesSupported =
+            navigator.canShare(filePayload);
+
+          log("share_files_support", {
+            supported: filesSupported,
+            file_type: imageFile.type,
+            file_size: imageFile.size
+          });
+
+          if (filesSupported) {
+            await navigator.share({
+              title: payload.title,
+              text: shareText,
+              files: [imageFile]
+            });
+
+            return;
+          }
+        } catch (error) {
+          if (
+            error &&
+            error.name === "AbortError"
+          ) {
+            return;
+          }
+
+          log("share_files_error", {
+            error: String(
+              error && error.message
+                ? error.message
+                : error
+            )
+          });
+        }
+      }
+
+      // Preferencia 2: mensaje + enlace, ambos dentro de text.
+      try {
+        await navigator.share({
+          title: payload.title,
+          text: shareText
+        });
+
+        return;
+      } catch (error) {
+        if (
+          error &&
+          error.name === "AbortError"
+        ) {
+          return;
+        }
+
+        log("share_text_error", {
+          error: String(
+            error && error.message
+              ? error.message
+              : error
+          )
+        });
+      }
+    }
+
+    // Fallback 3: portapapeles.
+    try {
+      await navigator.clipboard.writeText(
+        shareText
+      );
+
       const button = $("shareButton");
+
       if (button) {
-        const original = button.innerHTML;
-        button.textContent = "Enlace copiado";
+        const original =
+          button.innerHTML;
+
+        button.textContent =
+          "Enlace copiado";
+
         setTimeout(() => {
-          button.innerHTML = original;
+          button.innerHTML =
+            original;
         }, 1800);
       }
-    } catch (_) {
-      window.prompt("Copia este enlace para compartir la emisión:", fallbackText);
-    }
+
+      return;
+    } catch (_) {}
+
+    // Fallback 4.
+    window.prompt(
+      "Copia este contenido para compartir la emisión:",
+      shareText
+    );
   }
 
   function escapeText(value) {
