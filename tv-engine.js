@@ -57,6 +57,20 @@
     return Number.isFinite(value) && value > 0 ? value : 60;
   }
 
+  function scheduleEndToSeconds(startValue, endValue) {
+    const start = timeToSeconds(startValue);
+    const end = timeToSeconds(endValue);
+
+    if (start === null || end === null) return null;
+
+    // En una franja diaria, "00:00" como hora de FIN significa
+    // el cierre del día (24:00), no el comienzo del mismo día.
+    // Ejemplo: 22:00 -> 00:00 debe equivaler a 22:00 -> 24:00.
+    if (end === 0 && start > 0) return 86400;
+
+    return end;
+  }
+
   function uniqueBy(items, keyFn) {
     const seen = new Set();
     return items.filter(item => {
@@ -160,7 +174,7 @@
       if (Array.isArray(row.days) && row.days.length && !row.days.includes(parts.weekday)) return false;
 
       const start = timeToSeconds(row.start);
-      const end = timeToSeconds(row.end);
+      const end = scheduleEndToSeconds(row.start, row.end);
       if (start === null || end === null) return false;
       if (parts.secondsOfDay < start || parts.secondsOfDay >= end) return false;
 
@@ -464,7 +478,7 @@
 
       globalRows.forEach(row => {
         const start = timeToSeconds(row.start);
-        const end = timeToSeconds(row.end);
+        const end = scheduleEndToSeconds(row.start, row.end);
         if (start === null || end === null) return;
 
         const probeParts = { ...parts, secondsOfDay: start };

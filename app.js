@@ -596,13 +596,16 @@
     currentVideoId = "";
     currentPlaybackContextKey = "";
 
-    soundEnabled = true;
     updateSoundButton();
 
     if (playerReady && player) {
       try {
-        player.unMute();
-        player.setVolume(100);
+        if (soundEnabled) {
+          player.unMute();
+          player.setVolume(100);
+        } else {
+          player.mute();
+        }
       } catch (_) {}
     }
 
@@ -1309,6 +1312,10 @@
       events: {
         onReady() {
           playerReady = true;
+
+          // La TV arranca con sonido activado.
+          // A partir de aquí, soundEnabled representa la decisión del usuario
+          // y NO debe reiniciarse al cambiar de canal.
           soundEnabled = true;
 
           try {
@@ -1338,12 +1345,14 @@
           }
 
           if (state === window.YT.PlayerState.PLAYING) {
-            if (soundEnabled) {
-              try {
+            try {
+              if (soundEnabled) {
                 player.unMute();
                 player.setVolume(100);
-              } catch (_) {}
-            }
+              } else {
+                player.mute();
+              }
+            } catch (_) {}
 
             trackPlaybackStart();
             updateInfoPanel(currentBroadcast);
