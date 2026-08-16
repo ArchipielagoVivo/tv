@@ -42,7 +42,7 @@ El archivo público sólo se actualiza cuando cambian datos significativos.
 El endpoint Apps Script de origen es:
 
 ```text
-https://script.google.com/macros/s/AKfycbxcmJ4_kBZKJe9Npa7lQ4kcQzRdEN_j6Xc11zq2T6ak628dgi4VYcGZv3VNVyGr8KLc/exec?export=tv
+https://script.google.com/macros/s/AKfycbyzAjOCPC77Yf9-lrRdV3x709VX6qJCa3bwJGDyr5uz4XnkTKPFcQsP0oWUCzlRdgt3DQ/exec?export=tv
 ```
 
 Ese endpoint queda reservado como **origen de sincronización**, no como fuente que deba consultar cada visitante.
@@ -174,6 +174,16 @@ entity_deadline
 Tampoco se anuncia un cambio de programa si en el instante de ese cambio entra primero un bloque global de entidades.
 
 Las tarjetas son clicables y permiten cambiar de canal.
+
+## Participación y revisión de contenidos
+
+El panel **Información de la emisión** permite abrir el vídeo original y ofrece tres vías directas mediante el formulario de Archipiélago Vivo TV:
+
+- **Proponer un vídeo** para la programación.
+- **Comunicar un error o corrección** sobre el vídeo que está en emisión.
+- **Solicitar la retirada del vídeo** que está en emisión.
+
+Para correcciones y retiradas, el frontend precompleta en el formulario la URL original del contenido (`provider_url` cuando está disponible). El formulario es el único canal de solicitud: el frontend no modifica directamente la base de datos TV.
 
 ## Entidades y QR
 

@@ -2,6 +2,14 @@
   "use strict";
 
   const TV_DATA_URL = "https://data.archipielagovivo.org/tv/feed.json";
+  const TV_REQUEST_FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdhaM7hTEJRaSY8MOtgpu24R4NJwMrFi-qIL0IvR7esBiimVQ/viewform";
+  const TV_REQUEST_TYPE_ENTRY = "entry.1784490314";
+  const TV_REQUEST_URL_ENTRY = "entry.654634758";
+  const TV_REQUEST_TYPES = Object.freeze({
+    proposal: "Proponer un vídeo para Archipiélago Vivo TV",
+    correction: "Comunicar un problema o corrección sobre un vídeo",
+    removal: "Solicitar la retirada de un vídeo"
+  });
   const DATA_REFRESH_MS = 5 * 60 * 1000;
   const PLAYBACK_HEALTH_MS = 1000;
   const UI_TICK_MS = 250;
@@ -317,6 +325,58 @@
     return "";
   }
 
+  function mediaOriginalUrl(media) {
+    if (!media) return "";
+
+    const explicitUrl = firstText(
+      media.provider_url,
+      media.original_url,
+      media.url
+    );
+
+    if (explicitUrl) return explicitUrl;
+
+    const youtubeId = firstText(
+      media.youtube_id,
+      media.provider === "youtube" ? media.provider_id : ""
+    );
+
+    if (youtubeId) {
+      const url = new URL("https://www.youtube.com/watch");
+      url.searchParams.set("v", youtubeId);
+      return url.toString();
+    }
+
+    return "";
+  }
+
+  function tvRequestUrl(requestType, mediaUrl = "") {
+    const url = new URL(TV_REQUEST_FORM_URL);
+    url.searchParams.set("usp", "pp_url");
+    url.searchParams.set(TV_REQUEST_TYPE_ENTRY, requestType);
+
+    if (mediaUrl) {
+      url.searchParams.set(TV_REQUEST_URL_ENTRY, mediaUrl);
+    }
+
+    return url.toString();
+  }
+
+  function setTvRequestLink(id, requestType, mediaUrl = "", requiresMedia = false) {
+    const link = $(id);
+    if (!link) return;
+
+    const enabled = !requiresMedia || Boolean(mediaUrl);
+    link.hidden = !enabled;
+
+    if (!enabled) {
+      link.removeAttribute("href");
+      return;
+    }
+
+    link.href = tvRequestUrl(requestType, mediaUrl);
+  }
+
   function currentEntity(broadcast = currentBroadcast) {
     const media = broadcast && broadcast.media;
     if (!media || !media.entity_id || !tvData || !tvData.entities) return null;
@@ -394,7 +454,10 @@
     );
 
     const mediaLink = $("infoMediaLink");
-    if (mediaLink) {
+    let originalMediaUrl = mediaOriginalUrl(media);
+
+    // Compatibilidad con feeds legacy donde sólo existe youtube_id durante la reproducción.
+    if (!originalMediaUrl && media) {
       let playerVideoId = "";
 
       try {
@@ -412,34 +475,52 @@
       } catch (_) {}
 
       const youtubeId = firstText(
-        media && media.youtube_id,
+        media.youtube_id,
         currentVideoId,
         playerVideoId
       );
 
       if (youtubeId) {
-        const youtubeUrl = new URL(
-          "https://www.youtube.com/watch"
-        );
+        const youtubeUrl = new URL("https://www.youtube.com/watch");
+        youtubeUrl.searchParams.set("v", youtubeId);
+        originalMediaUrl = youtubeUrl.toString();
+      }
+    }
 
-        youtubeUrl.searchParams.set(
-          "v",
-          youtubeId
-        );
-
-        mediaLink.href = youtubeUrl.toString();
+    if (mediaLink) {
+      if (originalMediaUrl) {
+        mediaLink.href = originalMediaUrl;
         mediaLink.target = "_blank";
         mediaLink.rel = "noopener noreferrer";
         mediaLink.setAttribute(
           "aria-label",
-          `${firstText(media && media.title, media && media.name, "Vídeo")} · abrir vídeo original en YouTube`
+          `${firstText(media && media.title, media && media.name, "Vídeo")} · abrir vídeo original`
         );
       } else {
-        // Nunca dejamos href="#": si no hay un ID real, no hay enlace.
+        // Nunca dejamos href="#": si no hay una URL original real, no hay enlace.
         mediaLink.removeAttribute("href");
         mediaLink.removeAttribute("aria-label");
       }
     }
+
+    setTvRequestLink(
+      "infoProposeLink",
+      TV_REQUEST_TYPES.proposal
+    );
+
+    setTvRequestLink(
+      "infoCorrectionLink",
+      TV_REQUEST_TYPES.correction,
+      originalMediaUrl,
+      true
+    );
+
+    setTvRequestLink(
+      "infoRemovalLink",
+      TV_REQUEST_TYPES.removal,
+      originalMediaUrl,
+      true
+    );
 
     const description = firstText(
       media && media.description,
@@ -1454,6 +1535,23 @@
         ...broadcastDetails(),
         action_from: "program_info",
         action_to: $("infoMapLink").href || ""
+      });
+    });
+
+    [
+      ["infoProposeLink", "proposal"],
+      ["infoCorrectionLink", "correction"],
+      ["infoRemovalLink", "removal"]
+    ].forEach(([id, action]) => {
+      const link = $(id);
+      if (!link) return;
+
+      link.addEventListener("click", () => {
+        trackTv("tv_request_open", {
+          ...broadcastDetails(),
+          action_from: "program_info",
+          action_to: action
+        });
       });
     });
 

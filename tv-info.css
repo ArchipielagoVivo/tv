@@ -153,6 +153,77 @@
   border-color: rgba(254,239,100,.72);
 }
 
+
+.program-info-participation {
+  display: grid;
+  gap: .7rem;
+  margin-top: .1rem;
+  padding-top: .9rem;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+
+.program-info-participation-copy {
+  display: grid;
+  gap: .35rem;
+}
+
+.program-info-participation-copy p {
+  margin: 0;
+  color: rgba(255,255,255,.66);
+  font-size: .74rem;
+  line-height: 1.42;
+}
+
+.program-info-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .48rem;
+}
+
+.program-info-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: .5rem .68rem;
+  border: 1px solid rgba(255,255,255,.18);
+  border-radius: 999px;
+  background: rgba(255,255,255,.055);
+  color: rgba(255,255,255,.88);
+  text-decoration: none;
+  font-size: .68rem;
+  font-weight: 720;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.program-info-action:hover,
+.program-info-action:focus-visible {
+  border-color: rgba(255,255,255,.4);
+  background: rgba(255,255,255,.1);
+  color: #fff;
+}
+
+.program-info-action-primary {
+  border-color: rgba(254,239,100,.42);
+  color: var(--accent);
+}
+
+.program-info-action-primary:hover,
+.program-info-action-primary:focus-visible {
+  border-color: rgba(254,239,100,.72);
+  background: rgba(254,239,100,.1);
+  color: var(--accent);
+}
+
+.program-info-action-secondary {
+  color: rgba(255,255,255,.68);
+}
+
+.program-info-action[hidden] {
+  display: none !important;
+}
+
 @media (max-width: 720px) {
   .program-info-panel {
     right: 8px;
