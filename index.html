@@ -242,6 +242,13 @@
 
   <script src="https://archipielagovivo.org/analytics.js"></script>
   <script src="/tv-engine.js"></script>
+
+  <!-- SDK de proveedores externos. El motor de parrilla sigue siendo único;
+       tv-player.js adapta cada proveedor al mismo ciclo play/pause/ended/error. -->
+  <script src="https://player.vimeo.com/api/player.js"></script>
+  <script src="https://unpkg.com/@peertube/embed-api/build/player.min.js"></script>
+  <script src="/tv-player.js"></script>
+
   <script src="/app.js"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
 </body>

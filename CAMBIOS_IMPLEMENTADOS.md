@@ -35,3 +35,15 @@ Enlaces añadidos:
 - `app.js`
 
 Las versiones `tv v1.html` a `tv v4.html` se conservan como histórico.
+## 2026-08-17 · Reproductor multiproveedor y compartir
+
+- El botón **Compartir** pasa a la esquina superior derecha del vídeo.
+- Se desplaza la columna de continuidad para no solaparse con Compartir.
+- Se añade `tv-player.js` como capa única de reproducción.
+- YouTube, Vimeo, PeerTube y vídeo directo usan la misma lógica de parrilla.
+- `tv-engine.js` deja de deduplicar y evitar repeticiones exclusivamente por `youtube_id`; usa identidad multiproveedor.
+- Los medios de proveedores no soportados dejan de considerarse reproducibles por el frontend.
+- Se mantienen las URLs originales para corrección y retirada independientemente del proveedor.
+
+
+- Se documenta en `BACKEND_CAMBIO_REQUERIDO.txt` el cambio de `FRONTEND_SUPPORTED_PROVIDERS` necesario para que el backend marque Vimeo, PeerTube y direct como reproducibles.

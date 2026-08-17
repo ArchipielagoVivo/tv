@@ -85,6 +85,76 @@
     return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
   }
 
+  function mediaProvider(item) {
+    const explicit = String(item && item.provider || "").trim().toLowerCase();
+    const aliases = {
+      youtube: "youtube",
+      yt: "youtube",
+      vimeo: "vimeo",
+      vm: "vimeo",
+      peertube: "peertube",
+      pt: "peertube",
+      direct: "direct",
+      file: "direct",
+      html5: "direct"
+    };
+
+    if (aliases[explicit]) return aliases[explicit];
+    if (String(item && item.youtube_id || "").trim()) return "youtube";
+
+    const mediaId = String(item && item.media_id || "").trim().toUpperCase();
+    if (mediaId.startsWith("YT-")) return "youtube";
+    if (mediaId.startsWith("VM-")) return "vimeo";
+    if (mediaId.startsWith("PT-")) return "peertube";
+    if (mediaId.startsWith("AV-")) return "direct";
+
+    return explicit;
+  }
+
+  function providerReferenceExists(item) {
+    const provider = mediaProvider(item);
+    const providerId = String(item && item.provider_id || "").trim();
+    const providerUrl = String(item && item.provider_url || "").trim();
+    const embedUrl = String(item && item.embed_url || "").trim();
+
+    if (provider === "youtube") {
+      return Boolean(String(item && item.youtube_id || "").trim() || providerId || String(item && item.media_id || "").startsWith("YT-"));
+    }
+
+    if (provider === "vimeo") {
+      return Boolean(providerId || providerUrl || embedUrl);
+    }
+
+    if (provider === "peertube") {
+      return Boolean(embedUrl || (providerId && providerUrl));
+    }
+
+    if (provider === "direct") {
+      return Boolean(embedUrl || providerUrl || String(item && item.url || "").trim());
+    }
+
+    return false;
+  }
+
+  function providerSupported(item) {
+    return ["youtube", "vimeo", "peertube", "direct"].includes(mediaProvider(item)) &&
+      providerReferenceExists(item);
+  }
+
+  function mediaIdentity(item) {
+    if (!item) return "";
+    const mediaId = String(item.media_id || "").trim();
+    if (mediaId) return mediaId;
+
+    const provider = mediaProvider(item);
+    const providerId = String(item.youtube_id || item.provider_id || "").trim();
+    const source = String(item.provider_url || item.embed_url || item.url || "").trim();
+
+    return provider && (providerId || source)
+      ? `${provider}:${providerId || source}`
+      : "";
+  }
+
   class TVEngine {
     constructor(data) {
       this.data = data || {};
@@ -109,7 +179,10 @@
       this.mediaIndex = new Map(this.media.map(item => [item.media_id, item]));
       this.entityIndex = new Map(Object.entries(this.data.entities || {}));
 
-      this.playableMedia = this.media.filter(item => item.playable === true || (item.playable !== false && item.embeddable === true));
+      this.playableMedia = this.media.filter(item =>
+        providerSupported(item) &&
+        (item.playable === true || (item.playable !== false && item.embeddable === true))
+      );
       this.playableEntityMedia = this.playableMedia.filter(item => String(item.type || "").toLowerCase() === "entity");
       this.externalMedia = this.playableMedia.filter(item => String(item.type || "").toLowerCase() !== "entity");
 
@@ -397,14 +470,16 @@
 
     resolveSequence(sequence, elapsedSeconds, seedText = "") {
       // Un mismo vídeo puede llegar al feed con registros distintos.
-      // Para continuidad editorial deduplicamos por youtube_id, no sólo media_id.
+      // La identidad de reproducción es multiproveedor: media_id cuando existe
+      // y, como fallback, proveedor + identificador/URL.
       const valid = uniqueBy(
         sequence.filter(item =>
           item &&
-          item.youtube_id &&
+          providerSupported(item) &&
+          mediaIdentity(item) &&
           asDuration(item) > 0
         ),
-        item => String(item.youtube_id)
+        mediaIdentity
       );
 
       if (!valid.length) return null;
@@ -463,14 +538,14 @@
             if (
               result.length > 1 &&
               prevPrev.length &&
-              result[0].youtube_id ===
-                prevPrev[prevPrev.length - 1].youtube_id
+              mediaIdentity(result[0]) ===
+                mediaIdentity(prevPrev[prevPrev.length - 1])
             ) {
               const swapIndex = result.findIndex(
                 (item, index) =>
                   index > 0 &&
-                  item.youtube_id !==
-                    prevPrev[prevPrev.length - 1].youtube_id
+                  mediaIdentity(item) !==
+                    mediaIdentity(prevPrev[prevPrev.length - 1])
               );
 
               if (swapIndex > 0) {
@@ -487,12 +562,12 @@
 
           if (
             previousLast &&
-            ordered[0].youtube_id === previousLast.youtube_id
+            mediaIdentity(ordered[0]) === mediaIdentity(previousLast)
           ) {
             const swapIndex = ordered.findIndex(
               (item, index) =>
                 index > 0 &&
-                item.youtube_id !== previousLast.youtube_id
+                mediaIdentity(item) !== mediaIdentity(previousLast)
             );
 
             if (swapIndex > 0) {
@@ -792,7 +867,7 @@
     }
   }
 
-  const api = { TVEngine, seededShuffle, hash32, timeToSeconds };
+  const api = { TVEngine, seededShuffle, hash32, timeToSeconds, mediaProvider, providerSupported, mediaIdentity };
 
   if (typeof module !== "undefined" && module.exports) {
     module.exports = api;

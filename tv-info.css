@@ -256,8 +256,8 @@
 .share-control {
   position: absolute;
   z-index: 27;
-  left: max(18px, env(safe-area-inset-left));
-  bottom: calc(max(18px, env(safe-area-inset-bottom)) + 52px);
+  top: calc(var(--header-h) + 12px);
+  right: max(18px, env(safe-area-inset-right));
   min-height: 40px;
   display: inline-flex;
   align-items: center;
@@ -307,8 +307,8 @@
 
 @media (max-width: 720px) {
   .share-control {
-    left: 8px;
-    bottom: 52px;
+    top: calc(var(--header-h) + 8px);
+    right: 8px;
     min-height: 36px;
     font-size: .68rem;
   }

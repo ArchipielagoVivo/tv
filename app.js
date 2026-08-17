@@ -36,10 +36,10 @@
   let selectedChannel = null;
   let player = null;
   let playerReady = false;
-  let currentVideoId = "";
+  let currentMediaKey = "";
   let currentBroadcast = null;
   let currentPlaybackContextKey = "";
-  let failedVideoIds = new Set();
+  let failedMediaKeys = new Set();
   let soundEnabled = true;
   let fallbackMuteTimer = null;
   let currentEntityCardId = "";
@@ -325,6 +325,26 @@
     return "";
   }
 
+  function mediaProvider(media) {
+    return window.AVTVPlayer
+      ? window.AVTVPlayer.normalizeProvider(media)
+      : String(media && media.provider || "").trim().toLowerCase();
+  }
+
+  function mediaPlaybackKey(media) {
+    if (!media) return "";
+    if (window.AVTVPlayer) return window.AVTVPlayer.mediaKey(media);
+    return firstText(media.media_id, media.provider_id, media.youtube_id);
+  }
+
+  function mediaSupportedByPlayer(media) {
+    return Boolean(
+      media &&
+      window.AVTVPlayer &&
+      window.AVTVPlayer.isSupported(media)
+    );
+  }
+
   function mediaOriginalUrl(media) {
     if (!media) return "";
 
@@ -336,18 +356,25 @@
 
     if (explicitUrl) return explicitUrl;
 
-    const youtubeId = firstText(
-      media.youtube_id,
-      media.provider === "youtube" ? media.provider_id : ""
-    );
+    const provider = mediaProvider(media);
+    const providerId = window.AVTVPlayer
+      ? window.AVTVPlayer.providerMediaId(media)
+      : firstText(media.provider_id, media.youtube_id);
 
-    if (youtubeId) {
+    if (provider === "youtube" && providerId) {
       const url = new URL("https://www.youtube.com/watch");
-      url.searchParams.set("v", youtubeId);
+      url.searchParams.set("v", providerId);
       return url.toString();
     }
 
-    return "";
+    if (provider === "vimeo" && providerId) {
+      return `https://vimeo.com/${encodeURIComponent(providerId)}`;
+    }
+
+    // Para PeerTube y fuentes directas el host forma parte de la identidad
+    // de la fuente. Si no hay provider_url, conservamos embed_url como enlace
+    // original en vez de inventar un dominio.
+    return firstText(media.embed_url);
   }
 
   function tvRequestUrl(requestType, mediaUrl = "") {
@@ -456,28 +483,13 @@
     const mediaLink = $("infoMediaLink");
     let originalMediaUrl = mediaOriginalUrl(media);
 
-    // Compatibilidad con feeds legacy donde sólo existe youtube_id durante la reproducción.
-    if (!originalMediaUrl && media) {
-      let playerVideoId = "";
-
-      try {
-        const videoData =
-          playerReady &&
-          player &&
-          typeof player.getVideoData === "function"
-            ? player.getVideoData()
-            : null;
-
-        playerVideoId =
-          videoData && videoData.video_id
-            ? String(videoData.video_id).trim()
-            : "";
-      } catch (_) {}
-
+    // Compatibilidad con feeds legacy de YouTube sin provider_url.
+    if (!originalMediaUrl && media && mediaProvider(media) === "youtube") {
       const youtubeId = firstText(
         media.youtube_id,
-        currentVideoId,
-        playerVideoId
+        playerReady && player && player.getProviderMediaId
+          ? player.getProviderMediaId()
+          : ""
       );
 
       if (youtubeId) {
@@ -698,20 +710,14 @@
       });
     }
     updateUrlChannel(channel);
-    currentVideoId = "";
+    currentMediaKey = "";
     currentPlaybackContextKey = "";
 
     updateSoundButton();
 
     if (playerReady && player) {
-      try {
-        if (soundEnabled) {
-          player.unMute();
-          player.setVolume(100);
-        } else {
-          player.mute();
-        }
-      } catch (_) {}
+      player.setVolume(1);
+      player.setMuted(!soundEnabled);
     }
 
     syncPlayback(true);
@@ -878,7 +884,7 @@
       renderChannelMenu();
       updateUrlChannel(selectedChannel);
       setStatus("", false);
-      syncPlayback(!currentVideoId);
+      syncPlayback(!currentMediaKey);
       log("TV cargada", {
         schema: data.schema_version,
         channels: engine.channels.length,
@@ -896,7 +902,10 @@
   function expectedBroadcast() {
     if (!engine || !selectedChannel) return null;
     let broadcast = engine.resolve(selectedChannel.channel_id, Date.now());
-    if (broadcast && broadcast.media && failedVideoIds.has(broadcast.media.youtube_id)) {
+    const failedKey = broadcast && broadcast.media
+      ? mediaPlaybackKey(broadcast.media)
+      : "";
+    if (failedKey && failedMediaKeys.has(failedKey)) {
       broadcast = { ...broadcast, kind: "standby", media: null };
     }
     return broadcast;
@@ -914,32 +923,17 @@
 
     clearTimeout(fallbackMuteTimer);
 
-    try {
-      if (soundEnabled) {
-        player.unMute();
-        player.setVolume(100);
-      } else {
-        player.mute();
-      }
-    } catch (_) {}
-
+    player.setVolume(1);
+    player.setMuted(!soundEnabled);
     updateSoundButton();
 
     fallbackMuteTimer = setTimeout(() => {
-      try {
-        const state = player.getPlayerState();
-
-        if (soundEnabled) {
-          player.unMute();
-          player.setVolume(100);
-        } else {
-          player.mute();
-        }
-
-        if (state !== window.YT.PlayerState.PLAYING) {
-          player.playVideo();
-        }
-      } catch (_) {}
+      if (!playerReady || !player) return;
+      player.setVolume(1);
+      player.setMuted(!soundEnabled);
+      if (player.getState() !== "playing") {
+        player.play();
+      }
     }, 1400);
   }
 
@@ -1066,7 +1060,7 @@
       buffering_ms: Math.round(mediaBufferingMs)
     };
 
-    currentVideoId = "";
+    currentMediaKey = "";
     currentPlaybackContextKey = "";
     closeInfoPanel();
     showIntermissionScreen();
@@ -1105,7 +1099,7 @@
     };
     mediaBufferingMs = 0;
     bufferingStartedAt = 0;
-    currentVideoId = "";
+    currentMediaKey = "";
     currentPlaybackContextKey = "";
     syncPlayback(true);
 
@@ -1165,26 +1159,44 @@
     reportTransitionStarted();
   }
 
-  function loadBroadcast(broadcast, expectedId, expectedOffset) {
-    currentVideoId = expectedId;
+  function loadBroadcast(broadcast, expectedOffset) {
+    const media = broadcast && broadcast.media;
+    const expectedKey = mediaPlaybackKey(media);
+    currentMediaKey = expectedKey;
     currentPlaybackContextKey = playbackContextKey(broadcast);
     mediaBufferingMs = 0;
     bufferingStartedAt = 0;
-    try {
-      player.loadVideoById({
-        videoId: expectedId,
-        startSeconds: Math.max(0, Math.floor(expectedOffset))
-      });
-      if (soundEnabled) {
-        player.unMute();
-        player.setVolume(100);
-      }
+
+    Promise.resolve(
+      player.load(media, {
+        startSeconds: Math.max(0, expectedOffset),
+        muted: !soundEnabled,
+        volume: 1
+      })
+    ).then(() => {
       ensureAutoplay();
-      log("load", expectedId, "offset", expectedOffset.toFixed(1), "channel", selectedChannel.channel_id);
-    } catch (error) {
+      log(
+        "load",
+        expectedKey,
+        "provider",
+        mediaProvider(media),
+        "offset",
+        expectedOffset.toFixed(1),
+        "channel",
+        selectedChannel.channel_id
+      );
+    }).catch(error => {
+      const failedKey = mediaPlaybackKey(media);
+      if (failedKey) failedMediaKeys.add(failedKey);
       log("load error", String(error));
-      trackTv("tv_error", { ...broadcastDetails(broadcast), error_code: "player_load_error" }, true);
-    }
+      trackTv("tv_error", {
+        ...broadcastDetails(broadcast),
+        error_code: `${mediaProvider(media) || "player"}_load_error`
+      }, true);
+      currentMediaKey = "";
+      currentPlaybackContextKey = "";
+      syncPlayback(true);
+    });
   }
 
   function syncPlayback(force = false) {
@@ -1204,22 +1216,31 @@
     renderChannelMenu();
     renderContinuity();
 
-    if (!broadcast || broadcast.kind !== "media" || !broadcast.media || !broadcast.media.youtube_id) {
+    if (
+      !broadcast ||
+      broadcast.kind !== "media" ||
+      !broadcast.media ||
+      !mediaSupportedByPlayer(broadcast.media)
+    ) {
       showStandby(broadcast);
-      if (playerReady && player) {
-        try { player.pauseVideo(); } catch (_) {}
-      }
+      if (playerReady && player) player.pause();
       return;
     }
 
     hideStandby();
-    const expectedId = broadcast.media.youtube_id;
-    const expectedOffset = Math.max(0, Number(broadcast.media_offset_seconds || 0));
-    if (!playerReady || !player) return;
 
-    const contextChanged = Boolean(previousBroadcast && nextContextKey !== currentPlaybackContextKey);
-    if (force || !currentVideoId || contextChanged) {
-      loadBroadcast(broadcast, expectedId, expectedOffset);
+    const expectedKey = mediaPlaybackKey(broadcast.media);
+    const expectedOffset = Math.max(0, Number(broadcast.media_offset_seconds || 0));
+    if (!playerReady || !player || !expectedKey) return;
+
+    const contextChanged = Boolean(
+      previousBroadcast &&
+      nextContextKey !== currentPlaybackContextKey
+    );
+    const mediaChanged = currentMediaKey !== expectedKey;
+
+    if (force || !currentMediaKey || contextChanged || mediaChanged) {
+      loadBroadcast(broadcast, expectedOffset);
     }
   }
 
@@ -1257,29 +1278,24 @@
       playerReady &&
       player &&
       !intermission &&
-      currentVideoId &&
+      currentMediaKey &&
       currentBroadcast &&
       currentBroadcast.kind === "media" &&
       currentBroadcast.media &&
-      currentBroadcast.media.youtube_id
+      mediaSupportedByPlayer(currentBroadcast.media)
     );
   }
 
   function forceLiveAfterPause() {
     if (!canRecoverPausedPlayback()) return;
 
-    let state = null;
-    try {
-      state = player.getPlayerState();
-    } catch (_) {
-      return;
-    }
+    const state = player.getState();
 
-    // Si playVideo() ya consiguió reanudar, no hacemos una
+    // Si play() ya consiguió reanudar, no hacemos una
     // resincronización innecesaria.
-    if (state !== window.YT.PlayerState.PAUSED) return;
+    if (state !== "paused") return;
 
-    log("paused -> force live", currentVideoId);
+    log("paused -> force live", currentMediaKey);
 
     trackTv("tv_playback_resync", {
       ...broadcastDetails(),
@@ -1287,7 +1303,7 @@
       action_to: "live"
     }, true);
 
-    currentVideoId = "";
+    currentMediaKey = "";
     currentPlaybackContextKey = "";
 
     // syncPlayback(true) consulta de nuevo el motor con Date.now(),
@@ -1300,21 +1316,16 @@
 
     clearPauseRecovery();
 
-    log("paused", currentVideoId);
+    log("paused", currentMediaKey);
 
     // Primer nivel: la pausa dura sólo unas décimas.
     // Intentamos continuar sin recargar el iframe ni alterar la calidad.
     pausePlayTimer = setTimeout(() => {
       if (!canRecoverPausedPlayback()) return;
 
-      try {
-        if (
-          player.getPlayerState() ===
-          window.YT.PlayerState.PAUSED
-        ) {
-          player.playVideo();
-        }
-      } catch (_) {}
+      if (player.getState() === "paused") {
+        player.play();
+      }
     }, PAUSE_PLAY_RETRY_MS);
 
     // Segundo nivel: si el navegador sigue realmente pausado,
@@ -1327,16 +1338,14 @@
 
   function toggleSound() {
     soundEnabled = !soundEnabled;
-    try {
+    if (playerReady && player) {
+      player.setVolume(1);
+      player.setMuted(!soundEnabled);
       if (soundEnabled) {
-        player.unMute();
-        player.setVolume(100);
-        player.playVideo();
+        player.play();
         trackTv("tv_sound_on", broadcastDetails());
-      } else {
-        player.mute();
       }
-    } catch (_) {}
+    }
     updateSoundButton();
   }
 
@@ -1400,99 +1409,99 @@
     }
   }
 
-  window.onYouTubeIframeAPIReady = function onYouTubeIframeAPIReady() {
-    player = new window.YT.Player("player", {
-      width: "100%",
-      height: "100%",
-      playerVars: {
-        autoplay: 1,
-        controls: 0,
-        disablekb: 1,
-        fs: 0,
-        playsinline: 1,
-        rel: 0,
-        iv_load_policy: 3,
-        modestbranding: 1
+  function initPlayer() {
+    if (!window.AVTVPlayer || !window.AVTVPlayer.MultiSourcePlayer) {
+      throw new Error("No se ha cargado el reproductor multiproveedor.");
+    }
+
+    player = new window.AVTVPlayer.MultiSourcePlayer("player", {
+      onReady(info) {
+        playerReady = true;
+        player.setVolume(1);
+        player.setMuted(!soundEnabled);
+        updateSoundButton();
+        log("player ready", info && info.provider || "");
       },
-      events: {
-        onReady() {
-          playerReady = true;
 
-          // La TV arranca con sonido activado.
-          // A partir de aquí, soundEnabled representa la decisión del usuario
-          // y NO debe reiniciarse al cambiar de canal.
-          soundEnabled = true;
+      onStateChange(state) {
+        if (lastPlayerState === "buffering" && state !== "buffering") {
+          handleBufferingEnd();
+        }
+        if (state === "buffering") handleBufferingStart();
 
-          try {
-            player.unMute();
-            player.setVolume(100);
-          } catch (_) {}
+        if (state !== "paused") {
+          clearPauseRecovery();
+        }
 
-          updateSoundButton();
-          syncPlayback(true);
-        },
-        onStateChange(event) {
-          const state = event.data;
-          if (lastPlayerState === window.YT.PlayerState.BUFFERING && state !== window.YT.PlayerState.BUFFERING) {
-            handleBufferingEnd();
-          }
-          if (state === window.YT.PlayerState.BUFFERING) handleBufferingStart();
+        lastPlayerState = state;
 
-          if (state !== window.YT.PlayerState.PAUSED) {
-            clearPauseRecovery();
-          }
+        if (state === "paused") {
+          handlePausedPlayback();
+          return;
+        }
 
-          lastPlayerState = state;
+        if (state === "playing") {
+          player.setVolume(1);
+          player.setMuted(!soundEnabled);
+          trackPlaybackStart();
+          updateInfoPanel(currentBroadcast);
+        }
 
-          if (state === window.YT.PlayerState.PAUSED) {
-            handlePausedPlayback();
+        if (state === "ended") {
+          if (
+            currentBroadcast &&
+            (currentBroadcast.is_global_entity_block ||
+             String(currentBroadcast.media && currentBroadcast.media.type || "").toLowerCase() === "entity")
+          ) {
+            currentMediaKey = "";
+            syncPlayback(true);
             return;
           }
-
-          if (state === window.YT.PlayerState.PLAYING) {
-            try {
-              if (soundEnabled) {
-                player.unMute();
-                player.setVolume(100);
-              } else {
-                player.mute();
-              }
-            } catch (_) {}
-
-            trackPlaybackStart();
-            updateInfoPanel(currentBroadcast);
-          }
-
-          if (state === window.YT.PlayerState.ENDED) {
-            if (
-              currentBroadcast &&
-              (currentBroadcast.is_global_entity_block ||
-               String(currentBroadcast.media && currentBroadcast.media.type || "").toLowerCase() === "entity")
-            ) {
-              currentVideoId = "";
-              syncPlayback(true);
-              return;
-            }
-            if (beginIntermissionFromEnded()) return;
-            currentVideoId = "";
-            syncPlayback(true);
-          }
-        },
-        onError(event) {
-          handleBufferingEnd();
-          if (currentVideoId) failedVideoIds.add(currentVideoId);
-          log("YouTube error", event.data, currentVideoId);
-          trackTv("tv_error", {
-            ...broadcastDetails(),
-            playback_buffering_ms: Math.round(mediaBufferingMs),
-            error_code: `youtube_${event.data}`
-          }, true);
-          currentVideoId = "";
-          currentPlaybackContextKey = "";
+          if (beginIntermissionFromEnded()) return;
+          currentMediaKey = "";
           syncPlayback(true);
         }
+      },
+
+      onError(info) {
+        handleBufferingEnd();
+        const failedKey = info && info.mediaKey
+          ? info.mediaKey
+          : currentMediaKey;
+        if (failedKey) failedMediaKeys.add(failedKey);
+
+        const provider = info && info.provider
+          ? info.provider
+          : mediaProvider(currentBroadcast && currentBroadcast.media);
+
+        const code = info && info.code
+          ? info.code
+          : `${provider || "player"}_error`;
+
+        log("player error", provider, code, failedKey);
+        trackTv("tv_error", {
+          ...broadcastDetails(),
+          playback_buffering_ms: Math.round(mediaBufferingMs),
+          error_code: code
+        }, true);
+
+        currentMediaKey = "";
+        currentPlaybackContextKey = "";
+        syncPlayback(true);
       }
     });
+
+    // El gestor multiproveedor está listo para recibir una carga aunque
+    // el SDK concreto (YouTube, Vimeo, PeerTube) termine de inicializarse
+    // unos instantes después.
+    playerReady = true;
+    updateSoundButton();
+  }
+
+  window.onYouTubeIframeAPIReady = function onYouTubeIframeAPIReady() {
+    if (window.AVTVPlayer && window.AVTVPlayer.notifyYouTubeIframeAPIReady) {
+      window.AVTVPlayer.notifyYouTubeIframeAPIReady();
+    }
   };
 
   function bindUi() {
@@ -1588,6 +1597,7 @@
   }
 
   async function init() {
+    initPlayer();
     bindUi();
     startTimers();
     await loadTvData();

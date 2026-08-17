@@ -175,6 +175,10 @@ Tampoco se anuncia un cambio de programa si en el instante de ese cambio entra p
 
 Las tarjetas son clicables y permiten cambiar de canal.
 
+## Compartir
+
+El botón propio **Compartir** se sitúa en la esquina superior derecha del área de vídeo, en la posición visual del control de compartir del proveedor. Archipiélago Vivo TV comparte su propia emisión y conserva el canal actual, no el enlace del proveedor.
+
 ## Participación y revisión de contenidos
 
 El panel **Información de la emisión** permite abrir el vídeo original y ofrece tres vías directas mediante el formulario de Archipiélago Vivo TV:
@@ -234,11 +238,35 @@ Los enlaces externos, incluida la Comunidad de WhatsApp, no reciben esos paráme
 
 ## Reproductor
 
-Se usa YouTube IFrame API.
+La parrilla utiliza un único motor y una capa de reproducción multiproveedor (`tv-player.js`).
 
-El motor corrige la deriva de reloj periódicamente.
+Proveedores soportados:
 
-Si el navegador bloquea el autoplay con sonido, la emisión continúa silenciada y se muestra el botón **Activar sonido**.
+- YouTube mediante YouTube IFrame API;
+- Vimeo mediante Vimeo Player SDK;
+- PeerTube mediante PeerTube Embed API;
+- vídeo directo mediante `<video>` HTML5.
+
+El `provider` y las referencias `provider_id`, `provider_url` y `embed_url` determinan el adaptador utilizado. Los medios legacy de YouTube que sólo incluyen `youtube_id` siguen siendo compatibles.
+
+El cambio de proveedor no modifica la lógica de parrilla: todos los reproductores reciben el mismo offset de emisión, estado de sonido, recuperación de pausa, final de pieza y tratamiento de errores.
+
+Si el navegador bloquea el autoplay con sonido, se mantiene disponible el control **Activar sonido**.
+
+### Requisito del backend TV
+
+El backend debe declarar los cuatro proveedores como reproducibles por el frontend. En `00_Config.gs`:
+
+```javascript
+FRONTEND_SUPPORTED_PROVIDERS: Object.freeze([
+  'youtube',
+  'vimeo',
+  'peertube',
+  'direct'
+]),
+```
+
+Mientras el feed siga declarando únicamente `youtube`, los registros Vimeo, PeerTube y directos pueden llegar exportados con `playable: false` y el motor no debe forzar su reproducción, porque ese estado también incorpora reglas de derechos, privacidad y disponibilidad técnica.
 
 ## Capa pública de datos
 
@@ -284,6 +312,7 @@ logo.svg                    identidad
 site.webmanifest            manifiesto web/PWA
 styles.css                  diseño responsive
 tv-engine.js                motor determinista de parrilla
+tv-player.js                adaptadores YouTube, Vimeo, PeerTube y vídeo directo
 
 ## Contrato de datos
 
@@ -339,8 +368,6 @@ Entre las mejoras prioritarias del frontend:
 - estabilizar visualmente los teasers de cambio de programa;
 - evitar repeticiones excesivas de programas o vídeos;
 - incorporar la agenda semanal a la programación;
-- añadir botón de compartir;
-- añadir información contextual sobre el vídeo o programa en emisión;
 - completar la analítica específica de TV.
 
 ## Proyecto
