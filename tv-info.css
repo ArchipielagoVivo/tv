@@ -1,12 +1,3 @@
-.tv-control-icon {
-  width: 40px;
-  padding: 0;
-  display: inline-grid;
-  place-items: center;
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
 .tv-control:disabled {
   opacity: .38;
   cursor: default;
@@ -227,7 +218,7 @@
 @media (max-width: 720px) {
   .program-info-panel {
     right: 8px;
-    bottom: 52px;
+    bottom: 58px;
     width: min(360px, calc(100vw - 16px));
     max-height: 62vh;
   }
@@ -235,10 +226,6 @@
   .program-info-row {
     grid-template-columns: 76px minmax(0, 1fr);
     gap: .55rem;
-  }
-
-  .tv-control-icon {
-    width: 36px;
   }
 }
 
@@ -250,41 +237,6 @@
   }
 }
 
-
-/* Compartir Archipiélago Vivo TV:
-   se coloca por encima del control Compartir propio de YouTube. */
-.share-control {
-  position: absolute;
-  z-index: 27;
-  top: calc(var(--header-h) + 12px);
-  right: max(18px, env(safe-area-inset-right));
-  min-height: 40px;
-  display: inline-flex;
-  align-items: center;
-  gap: .48rem;
-  padding: 0 .82rem;
-  border: 1px solid rgba(255,255,255,.2);
-  border-radius: 999px;
-  background: rgba(0,0,0,.72);
-  color: #fff;
-  font: inherit;
-  font-size: .75rem;
-  font-weight: 680;
-  cursor: pointer;
-  backdrop-filter: blur(9px);
-  box-shadow: 0 8px 26px rgba(0,0,0,.28);
-}
-
-.share-control:hover,
-.share-control:focus-visible {
-  border-color: rgba(255,255,255,.4);
-  background: rgba(0,0,0,.9);
-}
-
-.share-control > span:first-child {
-  font-size: 1rem;
-  line-height: 1;
-}
 
 .info-media-link {
   color: #fff;
@@ -305,11 +257,3 @@
   cursor: default;
 }
 
-@media (max-width: 720px) {
-  .share-control {
-    top: calc(var(--header-h) + 8px);
-    right: 8px;
-    min-height: 36px;
-    font-size: .68rem;
-  }
-}

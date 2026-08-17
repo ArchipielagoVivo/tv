@@ -913,8 +913,16 @@
 
   function updateSoundButton() {
     const button = $("soundButton");
+    const label = $("soundLabel");
+    const icon = $("soundIcon");
+    const actionLabel = soundEnabled ? "Silenciar" : "Activar sonido";
+
     button.classList.add("visible");
-    button.textContent = soundEnabled ? "Silenciar" : "Activar sonido";
+    if (label) label.textContent = actionLabel;
+    if (icon) icon.textContent = soundEnabled ? "🔊" : "🔇";
+
+    button.setAttribute("aria-label", actionLabel);
+    button.setAttribute("title", actionLabel);
     button.setAttribute("aria-pressed", soundEnabled ? "true" : "false");
   }
 
@@ -1372,13 +1380,20 @@
 
   function updateFullscreenLabel() {
     const button = $("fullscreenButton");
+    const label = $("fullscreenLabel");
+    const active = Boolean(fullscreenElement());
+    const actionLabel = active ? "Salir de pantalla completa" : "Pantalla completa";
+
     if (!fullscreenSupported()) {
       button.hidden = true;
       return;
     }
+
     button.hidden = false;
-    const active = Boolean(fullscreenElement());
-    button.textContent = active ? "Salir de pantalla completa" : "Pantalla completa";
+    if (label) label.textContent = actionLabel;
+    button.setAttribute("aria-label", actionLabel);
+    button.setAttribute("title", actionLabel);
+
     if (active) trackTv("tv_fullscreen_on", broadcastDetails());
   }
 

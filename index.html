@@ -222,19 +222,37 @@
       </div>
     </aside>
 
-    <button class="share-control" id="shareButton" type="button" aria-label="Compartir esta emisión">
-      <span aria-hidden="true">↗</span>
-      <span>Compartir</span>
-    </button>
-
-    <div class="tv-controls">
-      <button class="tv-control tv-control-icon" id="infoButton" type="button"
+    <div class="tv-controls" role="group" aria-label="Controles de la emisión">
+      <button class="tv-control" id="infoButton" type="button"
               aria-label="Información de la emisión"
               aria-haspopup="dialog"
               aria-expanded="false"
-              disabled>ⓘ</button>
-      <button class="tv-control" id="fullscreenButton" type="button">Pantalla completa</button>
-      <button class="tv-control" id="soundButton" type="button">Silenciar</button>
+              title="Información"
+              disabled>
+        <span class="tv-control-symbol" aria-hidden="true">ⓘ</span>
+        <span class="tv-control-label">Info</span>
+      </button>
+
+      <button class="tv-control" id="shareButton" type="button"
+              aria-label="Compartir esta emisión"
+              title="Compartir">
+        <span class="tv-control-symbol" aria-hidden="true">↗</span>
+        <span class="tv-control-label">Compartir</span>
+      </button>
+
+      <button class="tv-control" id="fullscreenButton" type="button"
+              aria-label="Pantalla completa"
+              title="Pantalla completa">
+        <span class="tv-control-symbol" id="fullscreenIcon" aria-hidden="true">⛶</span>
+        <span class="tv-control-label" id="fullscreenLabel">Pantalla completa</span>
+      </button>
+
+      <button class="tv-control" id="soundButton" type="button"
+              aria-label="Silenciar"
+              title="Silenciar">
+        <span class="tv-control-symbol" id="soundIcon" aria-hidden="true">🔊</span>
+        <span class="tv-control-label" id="soundLabel">Silenciar</span>
+      </button>
     </div>
 
     <div id="debug"></div>
